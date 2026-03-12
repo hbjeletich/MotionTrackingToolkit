@@ -39,4 +39,20 @@ public class TorsoModuleConfiguration : ModuleConfiguration
         obj.transform.SetParent(moduleParent.transform);
         return obj.AddComponent<TorsoTrackingModule>();
     }
+
+    public override void ApplyJointDefaults(MotionSource source)
+    {
+        switch (source)
+        {
+            case MotionSource.Captury:
+                pelvisJointName = "Hips";
+                spineJointName = "Spine4";
+                break;
+
+            case MotionSource.Kinect:
+                pelvisJointName = "SpineBase";
+                spineJointName = "SpineShoulder";
+                break;
+        }
+    }
 }

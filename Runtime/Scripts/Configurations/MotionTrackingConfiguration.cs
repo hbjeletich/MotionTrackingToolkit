@@ -11,6 +11,10 @@ public class MotionTrackingConfiguration : ScriptableObject
     [TextArea(2, 4)]
     public string description = "Default motion tracking configuration.";
 
+    [Header("Motion Source")]
+    [Tooltip("Which motion capture system provides skeleton data. Non-Custom sources auto-configure joint names.")]
+    public MotionSource motionSource = MotionSource.Custom;
+
     [Header("System Settings")]
     public float calibrationDelay = 2.0f;
 
@@ -20,7 +24,20 @@ public class MotionTrackingConfiguration : ScriptableObject
     [SerializeReference]
     public List<ModuleConfiguration> modules = new List<ModuleConfiguration>();
 
-    // find a specific module configuration by type
+    // true when joint names are fixed by the source (not user-editable)
+    public bool HasFixedJointNames => motionSource != MotionSource.Custom;
+
+    // apply joint name defaults from the current motion source to all modules.
+    public void ApplySourceDefaults()
+    {
+        if (motionSource == MotionSource.Custom) return;
+
+        foreach (var module in modules)
+        {
+            module?.ApplyJointDefaults(motionSource);
+        }
+    }
+
     public T GetModuleConfig<T>() where T : ModuleConfiguration
     {
         for (int i = 0; i < modules.Count; i++)
@@ -31,13 +48,11 @@ public class MotionTrackingConfiguration : ScriptableObject
         return null;
     }
 
-    // get all enabled modules
     public IEnumerable<ModuleConfiguration> GetEnabledModules()
     {
         return modules.Where(m => m != null && m.enabled);
     }
 
-    // check if a specific module type is enabled
     public bool IsModuleEnabled<T>() where T : ModuleConfiguration
     {
         var config = GetModuleConfig<T>();

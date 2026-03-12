@@ -35,4 +35,24 @@ public class ArmModuleConfiguration : ModuleConfiguration
         obj.transform.SetParent(moduleParent.transform);
         return obj.AddComponent<ArmTrackingModule>();
     }
+
+    public override void ApplyJointDefaults(MotionSource source)
+    {
+        switch (source)
+        {
+            case MotionSource.Captury:
+                leftHandJointName = "LeftHand";
+                rightHandJointName = "RightHand";
+                leftShoulderJointName = "LeftShoulder";
+                rightShoulderJointName = "RightShoulder";
+                break;
+
+            case MotionSource.Kinect:
+                leftHandJointName = "HandLeft";
+                rightHandJointName = "HandRight";
+                leftShoulderJointName = "ShoulderLeft";
+                rightShoulderJointName = "ShoulderRight";
+                break;
+        }
+    }
 }

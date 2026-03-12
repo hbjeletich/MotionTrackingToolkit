@@ -84,4 +84,22 @@ public class FootModuleConfiguration : ModuleConfiguration
             walkStopThreshold = walkSpeedThreshold * 0.5f;
         }
     }
+
+    public override void ApplyJointDefaults(MotionSource source)
+    {
+        switch (source)
+        {
+            case MotionSource.Captury:
+                leftFootJointName = "LeftFoot";
+                rightFootJointName = "RightFoot";
+                walkTrackingSpineJointName = "Spine";
+                break;
+
+            case MotionSource.Kinect:
+                leftFootJointName = "AnkleLeft";
+                rightFootJointName = "AnkleRight";
+                walkTrackingSpineJointName = "SpineMid";
+                break;
+        }
+    }
 }

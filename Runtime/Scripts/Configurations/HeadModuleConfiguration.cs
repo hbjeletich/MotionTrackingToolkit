@@ -42,4 +42,20 @@ public class HeadModuleConfiguration : ModuleConfiguration
         obj.transform.SetParent(moduleParent.transform);
         return obj.AddComponent<HeadTrackingModule>();
     }
+
+    public override void ApplyJointDefaults(MotionSource source)
+    {
+        switch (source)
+        {
+            case MotionSource.Captury:
+                headJointName = "Head";
+                neckJointName = "Neck";
+                break;
+
+            case MotionSource.Kinect:
+                headJointName = "Head";
+                neckJointName = "Neck";
+                break;
+        }
+    }
 }

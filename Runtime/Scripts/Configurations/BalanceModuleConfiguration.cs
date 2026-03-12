@@ -50,4 +50,30 @@ public class BalanceModuleConfiguration : ModuleConfiguration
         obj.transform.SetParent(moduleParent.transform);
         return obj.AddComponent<BalanceTrackingModule>();
     }
+
+    public override void ApplyJointDefaults(MotionSource source)
+    {
+        switch (source)
+        {
+            case MotionSource.Captury:
+                trunkJointName = "Spine1";
+                leftForeArmJointName = "LeftForeArm";
+                rightForeArmJointName = "RightForeArm";
+                leftLegJointName = "LeftLeg";
+                rightLegJointName = "RightLeg";
+                leftToeBaseJointName = "LeftToeBase";
+                rightToeBaseJointName = "RightToeBase";
+                break;
+
+            case MotionSource.Kinect:
+                trunkJointName = "SpineShoulder";
+                leftForeArmJointName = "ElbowLeft";
+                rightForeArmJointName = "ElbowRight";
+                leftLegJointName = "KneeLeft";
+                rightLegJointName = "KneeRight";
+                leftToeBaseJointName = "FootLeft";
+                rightToeBaseJointName = "FootRight";
+                break;
+        }
+    }
 }
