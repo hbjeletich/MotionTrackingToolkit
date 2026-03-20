@@ -15,7 +15,7 @@ MonoBehaviour:
   configurationName: Default
   description: Default motion tracking configuration.
   motionSource: 2
-  calibrationDelay: 2
+  calibrationDelay: 0
   calibrationFrames: 30
   modules:
   - rid: 5667218556290334892
@@ -29,7 +29,7 @@ MonoBehaviour:
     - rid: 5667218556290334892
       type: {class: ArmModuleConfiguration, ns: , asm: CapturyToolkit.Runtime}
       data:
-        enabled: 1
+        enabled: 0
         sensitivity: 1
         debugMode: 1
         isHandPositionTracked: 1
@@ -44,7 +44,7 @@ MonoBehaviour:
     - rid: 5667218556290334893
       type: {class: BalanceModuleConfiguration, ns: , asm: CapturyToolkit.Runtime}
       data:
-        enabled: 1
+        enabled: 0
         sensitivity: 1
         debugMode: 1
         isCoMTracked: 1
@@ -52,9 +52,9 @@ MonoBehaviour:
         isStabilityTracked: 1
         swayThreshold: 0.1
         stabilityThreshold: 0.05
-        comHistoryFrames: 180
+        comHistoryFrames: 270
         minLiftHeight: 0.05
-        trunkJointName: SpineChest
+        trunkJointName: SpineShoulder
         leftForeArmJointName: ElbowLeft
         rightForeArmJointName: ElbowRight
         leftLegJointName: KneeLeft
@@ -64,19 +64,19 @@ MonoBehaviour:
     - rid: 5667218556290334894
       type: {class: FootModuleConfiguration, ns: , asm: CapturyToolkit.Runtime}
       data:
-        enabled: 1
+        enabled: 0
         sensitivity: 1
         debugMode: 1
         isFootRaiseTracked: 1
         footRaiseThreshold: 0.1
         isHipAbductionTracked: 1
-        minAbductionDistance: 0.2
-        minLiftHeight: 0.05
+        minAbductionDistance: 0.4
+        minLiftHeight: 0.2
         isFootPositionTracked: 1
         useRelativeFootPosition: 1
         enableWalkTracking: 1
-        walkSpeedThreshold: 0.3
-        minimumWalkDuration: 2
+        walkSpeedThreshold: 0.15
+        minimumWalkDuration: 1.5
         walkStopThreshold: 0.1
         enableGaitAnalysis: 1
         minimumCyclesForAnalysis: 3
@@ -86,11 +86,11 @@ MonoBehaviour:
         eventHistoryCount: 20
         leftFootJointName: AnkleLeft
         rightFootJointName: AnkleRight
-        walkTrackingSpineJointName: SpineNavel
+        walkTrackingSpineJointName: SpineMid
     - rid: 5667218556290334895
       type: {class: HeadModuleConfiguration, ns: , asm: CapturyToolkit.Runtime}
       data:
-        enabled: 1
+        enabled: 0
         sensitivity: 1
         debugMode: 1
         isHeadPositionTracked: 1
@@ -115,5 +115,5 @@ MonoBehaviour:
         wholeBodyMovementThreshold: 3
         isBendTracked: 1
         bentOverAngleThreshold: 30
-        pelvisJointName: Pelvis
-        spineJointName: SpineChest
+        pelvisJointName: SpineBase
+        spineJointName: SpineShoulder
