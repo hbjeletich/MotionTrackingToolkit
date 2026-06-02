@@ -26,4 +26,19 @@ public class SkeletonMotionTrackingContext : IMotionTrackingManager
         multiplayerManager?.LoadConfiguration(config);
 
     public void Recalibrate() => multiplayerManager?.RecalibrateSkeleton(skeletonId);
+
+    public void SaveCalibration(string calibrationName)
+    {
+        if (multiplayerManager == null) return;
+        if (multiplayerManager.TryGetSkeletonById(skeletonId, out int playerNumber, out _))
+            multiplayerManager.SaveCalibration(playerNumber, calibrationName);
+    }
+
+    public bool LoadCalibration(string calibrationName)
+    {
+        if (multiplayerManager == null) return false;
+        if (multiplayerManager.TryGetSkeletonById(skeletonId, out int playerNumber, out _))
+            return multiplayerManager.LoadCalibration(playerNumber, calibrationName);
+        return false;
+    }
 }

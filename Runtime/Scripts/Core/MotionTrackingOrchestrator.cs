@@ -47,6 +47,10 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     public void Recalibrate() => ActiveManager?.Recalibrate();
 
+    public void SaveCalibration(string calibrationName) => ActiveManager?.SaveCalibration(calibrationName);
+
+    public bool LoadCalibration(string calibrationName) => ActiveManager?.LoadCalibration(calibrationName) ?? false;
+
     #endregion
 
     #region Private

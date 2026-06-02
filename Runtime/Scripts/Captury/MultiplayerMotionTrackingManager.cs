@@ -820,6 +820,15 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
 
     public void Recalibrate() => RecalibrateAllSkeletons();
 
+    public void SaveCalibration(string calibrationName) =>
+        Debug.LogWarning("MultiplayerMotionTrackingManager: Use SaveCalibration(playerNumber, name) for per-player saves.");
+
+    public bool LoadCalibration(string calibrationName)
+    {
+        Debug.LogWarning("MultiplayerMotionTrackingManager: Use LoadCalibration(playerNumber, name) for per-player loads.");
+        return false;
+    }
+
     public void SwapConfiguration(MotionTrackingConfiguration newConfig)
     {
         if (newConfig == null)

@@ -9,4 +9,6 @@ public interface IMotionTrackingManager
     MotionSource Source { get; }
     void LoadConfiguration(MotionTrackingConfiguration config);
     void Recalibrate();
+    void SaveCalibration(string calibrationName);
+    bool LoadCalibration(string calibrationName);
 }
