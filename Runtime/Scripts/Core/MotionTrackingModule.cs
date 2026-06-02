@@ -122,6 +122,10 @@ public abstract class MotionTrackingModule : MonoBehaviour
         return t;
     }
 
+    // call after loading a calibration snapshot to populate resolvedJoints before tracking begins.
+    // live Calibrate() calls ResolveJoints() internally; the load path must call this explicitly.
+    public bool PrepareForTracking() => ResolveJoints();
+
     #endregion
 
     #region Calibration Management

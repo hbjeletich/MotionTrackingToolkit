@@ -38,6 +38,11 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     [Range(0f, 0.95f)]
     [SerializeField] private float positionSmoothingFactor = 0.5f;
 
+    [Header("Calibration")]
+    [Tooltip("If set and a matching saved calibration exists, it loads on startup instead of running " +
+             "a live calibration. Leave blank to always calibrate live.")]
+    [SerializeField] private string defaultCalibrationName = "";
+
     #endregion
 
     #region Enums
@@ -435,8 +440,24 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
         if (isFirstBody && !isSystemCalibrated)
         {
-            activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+            if (TryLoadDefaultCalibration())
+            {
+                isSystemCalibrated = true;
+                if (enableDebugLogging)
+                    Debug.Log($"KinectMotionTrackingManager: Loaded saved calibration '{defaultCalibrationName}', skipping live calibration");
+            }
+            else
+            {
+                activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+            }
         }
+    }
+
+    private bool TryLoadDefaultCalibration()
+    {
+        if (string.IsNullOrEmpty(defaultCalibrationName)) return false;
+        if (!CalibrationStore.Exists(defaultCalibrationName)) return false;
+        return LoadCalibration(defaultCalibrationName);
     }
 
     private void OnBodyLost()
@@ -651,6 +672,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
             var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
             if (entry == null) continue;
             module.DeserializeCalibration(entry.json);
+            module.PrepareForTracking();
         }
 
         return true;

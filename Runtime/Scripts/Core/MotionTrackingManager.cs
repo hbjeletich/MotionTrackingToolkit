@@ -13,6 +13,11 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     [SerializeField] private bool dontDestroyOnLoad = true;
     [SerializeField] private bool enableDebugLogging = true;
 
+    [Header("Calibration")]
+    [Tooltip("If set and a matching saved calibration exists, it loads on startup instead of running " +
+             "a live calibration. Leave blank to always calibrate live.")]
+    [SerializeField] private string defaultCalibrationName = "";
+
     // core components
     private CapturyInput capturyInput;
     private CapturyNetworkPlugin networkPlugin;
@@ -202,7 +207,24 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     {
         if (enableDebugLogging) Debug.Log("MotionTrackingManager: Skeleton setup complete, building joint lookup...");
         BuildJointLookup(skeleton);
-        activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+
+        if (TryLoadDefaultCalibration())
+        {
+            isSystemCalibrated = true;
+            if (enableDebugLogging)
+                Debug.Log($"MotionTrackingManager: Loaded saved calibration '{defaultCalibrationName}', skipping live calibration");
+        }
+        else
+        {
+            activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+        }
+    }
+
+    private bool TryLoadDefaultCalibration()
+    {
+        if (string.IsNullOrEmpty(defaultCalibrationName)) return false;
+        if (!CalibrationStore.Exists(defaultCalibrationName)) return false;
+        return LoadCalibration(defaultCalibrationName);
     }
 
     private void BuildJointLookup(CapturySkeleton skeleton)
@@ -452,6 +474,7 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
             var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
             if (entry == null) continue;
             module.DeserializeCalibration(entry.json);
+            module.PrepareForTracking();
         }
 
         return true;

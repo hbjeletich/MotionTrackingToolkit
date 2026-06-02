@@ -38,6 +38,11 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     [Tooltip("World offset applied to all joints (positions the skeleton in the scene)")]
     [SerializeField] private Vector3 worldOffset = Vector3.zero;
 
+    [Header("Calibration")]
+    [Tooltip("If set and a matching saved calibration exists, it loads on startup instead of running " +
+             "a live calibration. Leave blank to always calibrate live.")]
+    [SerializeField] private string defaultCalibrationName = "";
+
     #endregion
 
     #region MediaPipe Landmark Indices
@@ -200,7 +205,17 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             hasReceivedLandmarks = true;
             if (enableDebugLogging)
                 Debug.Log("MediaPipeMotionTrackingManager: First landmarks received, calibrating...");
-            activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+
+            if (TryLoadDefaultCalibration())
+            {
+                isSystemCalibrated = true;
+                if (enableDebugLogging)
+                    Debug.Log($"MediaPipeMotionTrackingManager: Loaded saved calibration '{defaultCalibrationName}', skipping live calibration");
+            }
+            else
+            {
+                activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
+            }
         }
 
         // drive modules
@@ -441,6 +456,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         }
     }
 
+    private bool TryLoadDefaultCalibration()
+    {
+        if (string.IsNullOrEmpty(defaultCalibrationName)) return false;
+        if (!CalibrationStore.Exists(defaultCalibrationName)) return false;
+        return LoadCalibration(defaultCalibrationName);
+    }
+
     #endregion
 
     #region Module Updates
@@ -655,6 +677,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
             if (entry == null) continue;
             module.DeserializeCalibration(entry.json);
+            module.PrepareForTracking();
         }
 
         return true;

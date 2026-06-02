@@ -20,6 +20,11 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
     [SerializeField] private int maxPlayers = 4;
     [SerializeField] private float calibrationDelayPerSkeleton = 2.0f;
 
+    [Header("Calibration")]
+    [Tooltip("Prefix for per-player saved calibrations. Set to e.g. 'session1_player' to load " +
+             "'session1_player1.json', 'session1_player2.json', etc. Leave blank to always calibrate live.")]
+    [SerializeField] private string defaultCalibrationName = "";
+
     #endregion
 
     #region Skeleton Tracking Data Structure
@@ -312,8 +317,24 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
 
         if (automaticCalibration)
         {
-            StartCoroutine(CalibrateSkeleton(skeleton.id));
+            string perPlayerName = BuildPerPlayerCalibrationName(skeletonData.playerNumber);
+            if (!string.IsNullOrEmpty(perPlayerName) && CalibrationStore.Exists(perPlayerName)
+                && LoadCalibration(skeletonData.playerNumber, perPlayerName))
+            {
+                skeletonData.isCalibrated = true;
+                if (enableDebugLogging)
+                    Debug.Log($"MultiplayerMotionTrackingManager: Loaded '{perPlayerName}' for {skeletonData.playerLabel}");
+            }
+            else
+            {
+                skeletonData.calibrationCoroutine = StartCoroutine(CalibrateSkeleton(skeleton.id));
+            }
         }
+    }
+
+    private string BuildPerPlayerCalibrationName(int playerNumber)
+    {
+        return string.IsNullOrEmpty(defaultCalibrationName) ? "" : defaultCalibrationName + playerNumber;
     }
 
     private void BuildJointLookup(CapturySkeleton skeleton, SkeletonTrackingData skeletonData)
@@ -785,6 +806,7 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
             var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
             if (entry == null) continue;
             module.DeserializeCalibration(entry.json);
+            module.PrepareForTracking();
         }
 
         return true;
