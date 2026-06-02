@@ -155,6 +155,14 @@ public class MotionTrackingConfigurationEditor : Editor
             }
         }
 
+        EditorGUILayout.Space(10);
+        if (GUILayout.Button("Apply Joint Defaults for Source"))
+        {
+            Undo.RecordObject(config, "Apply Joint Defaults");
+            config.ApplySourceDefaults();
+            EditorUtility.SetDirty(config);
+        }
+
         serializedObject.ApplyModifiedProperties();
     }
 

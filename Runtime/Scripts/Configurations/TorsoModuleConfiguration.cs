@@ -53,6 +53,11 @@ public class TorsoModuleConfiguration : ModuleConfiguration
                 pelvisJointName = "SpineBase";
                 spineJointName = "SpineShoulder";
                 break;
+
+            case MotionSource.MediaPipe:
+                pelvisJointName = "Hips";
+                spineJointName = "Spine4";
+                break;
         }
     }
 }

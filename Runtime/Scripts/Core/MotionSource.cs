@@ -11,5 +11,6 @@ public enum MotionSource
 {
     Custom,       // user sets joint names manually (any skeleton)
     Captury,      // CapturyLive default skeleton naming
-    Kinect        // Kinect via Windows.Kinect plugin
+    Kinect,       // Kinect via Windows.Kinect plugin
+    MediaPipe     // MediaPipe pose landmarks via Python UDP sender
 }

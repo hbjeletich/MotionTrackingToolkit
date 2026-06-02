@@ -74,6 +74,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     #region Public Properties
 
     public MotionTrackingConfiguration Config => config;
+    public MotionSource Source => MotionSource.Kinect;
 
     public bool IsBodyTracked => isBodyTracked;
     public bool IsSystemCalibrated => isSystemCalibrated;

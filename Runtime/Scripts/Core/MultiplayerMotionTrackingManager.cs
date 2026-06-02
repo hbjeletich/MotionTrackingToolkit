@@ -72,6 +72,7 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
     #region Public Properties
 
     public MotionTrackingConfiguration Config => config;
+    public MotionSource Source => MotionSource.Captury;
     public int TrackedSkeletonCount => trackedSkeletons.Count;
     public bool AutomaticCalibration => automaticCalibration;
     public int MaxPlayers => maxPlayers;

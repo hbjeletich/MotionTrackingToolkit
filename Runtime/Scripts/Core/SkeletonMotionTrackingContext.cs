@@ -8,6 +8,7 @@ public class SkeletonMotionTrackingContext : IMotionTrackingManager
     private int skeletonId;
 
     public MotionTrackingConfiguration Config => multiplayerManager?.Config;
+    public MotionSource Source => multiplayerManager?.Source ?? MotionSource.Custom;
 
     public SkeletonMotionTrackingContext(MultiplayerMotionTrackingManager manager, int skeletonId)
     {

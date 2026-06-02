@@ -129,6 +129,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     #region IMotionTrackingManager
 
     public MotionTrackingConfiguration Config => config;
+    public MotionSource Source => MotionSource.MediaPipe;
 
     public Transform GetJointByName(string jointName)
     {

@@ -53,6 +53,13 @@ public class ArmModuleConfiguration : ModuleConfiguration
                 leftShoulderJointName = "ShoulderLeft";
                 rightShoulderJointName = "ShoulderRight";
                 break;
+
+            case MotionSource.MediaPipe:
+                leftHandJointName = "LeftHand";
+                rightHandJointName = "RightHand";
+                leftShoulderJointName = "LeftShoulder";
+                rightShoulderJointName = "RightShoulder";
+                break;
         }
     }
 }

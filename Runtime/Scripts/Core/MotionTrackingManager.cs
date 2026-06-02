@@ -31,6 +31,7 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     // public config
     public MotionTrackingConfiguration Config => config;
+    public MotionSource Source => MotionSource.Captury;
 
     #region Awake, Start, Update, Destroy
 

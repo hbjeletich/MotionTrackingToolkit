@@ -56,6 +56,11 @@ public class HeadModuleConfiguration : ModuleConfiguration
                 headJointName = "Head";
                 neckJointName = "Neck";
                 break;
+
+            case MotionSource.MediaPipe:
+                headJointName = "Head";
+                neckJointName = "Neck";
+                break;
         }
     }
 }
