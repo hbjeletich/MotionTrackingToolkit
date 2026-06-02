@@ -189,6 +189,12 @@ public abstract class MotionTrackingModule : MonoBehaviour
         _currentCalibration = null;
     }
 
+    // serialize the current calibration to a JSON string, or null if not calibrated
+    public abstract string SerializeCalibration();
+
+    // rebuild and apply a calibration from a JSON string produced by SerializeCalibration
+    public abstract void DeserializeCalibration(string json);
+
     #endregion
 
     #region Utility

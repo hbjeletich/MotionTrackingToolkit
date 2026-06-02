@@ -136,6 +136,20 @@ public class BalanceTrackingModule : MotionTrackingModule
         comTimestamps?.Clear();
     }
 
+    public override string SerializeCalibration()
+    {
+        var cal = CurrentCalibration as BalanceCalibrationSnapshot;
+        if (cal == null) return null;
+        return JsonUtility.ToJson(cal);
+    }
+
+    public override void DeserializeCalibration(string json)
+    {
+        if (string.IsNullOrEmpty(json)) return;
+        var snapshot = JsonUtility.FromJson<BalanceCalibrationSnapshot>(json);
+        if (snapshot != null) SetCalibration(snapshot);
+    }
+
     #endregion
 
     #region Update

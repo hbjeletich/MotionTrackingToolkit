@@ -173,6 +173,20 @@ public class FootTrackingModule : MotionTrackingModule
         ClearHistoryBuffers();
     }
 
+    public override string SerializeCalibration()
+    {
+        var cal = CurrentCalibration as FootCalibrationSnapshot;
+        if (cal == null) return null;
+        return JsonUtility.ToJson(cal);
+    }
+
+    public override void DeserializeCalibration(string json)
+    {
+        if (string.IsNullOrEmpty(json)) return;
+        var snapshot = JsonUtility.FromJson<FootCalibrationSnapshot>(json);
+        if (snapshot != null) SetCalibration(snapshot);
+    }
+
     #endregion
 
     #region Main Update Loop

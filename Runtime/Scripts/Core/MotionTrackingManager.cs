@@ -406,5 +406,56 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     public int ActiveModuleCount => allModules.Count;
     public string CurrentConfigurationName => config?.configurationName ?? "None";
 
+    public void SaveCalibration(string calibrationName)
+    {
+        var bundle = new CalibrationBundle
+        {
+            calibrationName = calibrationName,
+            source = Source.ToString(),
+            timestamp = Time.time
+        };
+
+        foreach (var module in allModules)
+        {
+            if (module == null) continue;
+            string json = module.SerializeCalibration();
+            if (string.IsNullOrEmpty(json)) continue;
+            bundle.entries.Add(new CalibrationBundleEntry
+            {
+                moduleType = module.GetType().Name,
+                json = json
+            });
+        }
+
+        CalibrationStore.Save(bundle);
+    }
+
+    public bool LoadCalibration(string calibrationName)
+    {
+        var bundle = CalibrationStore.Load(calibrationName);
+        if (bundle == null)
+        {
+            Debug.LogWarning($"MotionTrackingManager: No saved calibration '{calibrationName}'");
+            return false;
+        }
+
+        if (bundle.source != Source.ToString())
+        {
+            Debug.LogWarning($"MotionTrackingManager: Calibration '{calibrationName}' was captured on " +
+                             $"source '{bundle.source}' but active source is '{Source}'. " +
+                             $"Joint positions may not transfer meaningfully.");
+        }
+
+        foreach (var module in allModules)
+        {
+            if (module == null) continue;
+            var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
+            if (entry == null) continue;
+            module.DeserializeCalibration(entry.json);
+        }
+
+        return true;
+    }
+
     #endregion
 }

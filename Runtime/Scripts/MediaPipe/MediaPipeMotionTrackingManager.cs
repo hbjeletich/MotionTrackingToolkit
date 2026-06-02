@@ -603,13 +603,61 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         return landmarkTransforms[(int)landmark];
     }
 
-    /// <summary>
-    /// Get the confidence value for a landmark (0-1).
-    /// </summary>
     public float GetLandmarkConfidence(int index)
     {
         if (index >= 0 && index < 33) return confidenceBuffer[index];
         return 0f;
+    }
+
+    public void SaveCalibration(string calibrationName)
+    {
+        var bundle = new CalibrationBundle
+        {
+            calibrationName = calibrationName,
+            source = Source.ToString(),
+            timestamp = Time.time
+        };
+
+        foreach (var module in allModules)
+        {
+            if (module == null) continue;
+            string json = module.SerializeCalibration();
+            if (string.IsNullOrEmpty(json)) continue;
+            bundle.entries.Add(new CalibrationBundleEntry
+            {
+                moduleType = module.GetType().Name,
+                json = json
+            });
+        }
+
+        CalibrationStore.Save(bundle);
+    }
+
+    public bool LoadCalibration(string calibrationName)
+    {
+        var bundle = CalibrationStore.Load(calibrationName);
+        if (bundle == null)
+        {
+            Debug.LogWarning($"MediaPipeMotionTrackingManager: No saved calibration '{calibrationName}'");
+            return false;
+        }
+
+        if (bundle.source != Source.ToString())
+        {
+            Debug.LogWarning($"MediaPipeMotionTrackingManager: Calibration '{calibrationName}' was captured on " +
+                             $"source '{bundle.source}' but active source is '{Source}'. " +
+                             $"Joint positions may not transfer meaningfully.");
+        }
+
+        foreach (var module in allModules)
+        {
+            if (module == null) continue;
+            var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
+            if (entry == null) continue;
+            module.DeserializeCalibration(entry.json);
+        }
+
+        return true;
     }
 
     #endregion

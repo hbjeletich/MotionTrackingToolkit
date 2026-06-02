@@ -721,6 +721,75 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
         return allRestored;
     }
 
+    public void SaveCalibration(int playerNumber, string calibrationName)
+    {
+        int skeletonId = GetSkeletonIdByPlayerNumber(playerNumber);
+        if (skeletonId == -1)
+        {
+            Debug.LogWarning($"MultiplayerMotionTrackingManager: Cannot save calibration — player {playerNumber} not found");
+            return;
+        }
+
+        if (!trackedSkeletons.TryGetValue(skeletonId, out SkeletonTrackingData data)) return;
+
+        var bundle = new CalibrationBundle
+        {
+            calibrationName = calibrationName,
+            source = Source.ToString(),
+            timestamp = Time.time
+        };
+
+        foreach (var module in data.modules)
+        {
+            if (module == null) continue;
+            string json = module.SerializeCalibration();
+            if (string.IsNullOrEmpty(json)) continue;
+            bundle.entries.Add(new CalibrationBundleEntry
+            {
+                moduleType = module.GetType().Name,
+                json = json
+            });
+        }
+
+        CalibrationStore.Save(bundle);
+    }
+
+    public bool LoadCalibration(int playerNumber, string calibrationName)
+    {
+        int skeletonId = GetSkeletonIdByPlayerNumber(playerNumber);
+        if (skeletonId == -1)
+        {
+            Debug.LogWarning($"MultiplayerMotionTrackingManager: Cannot load calibration — player {playerNumber} not found");
+            return false;
+        }
+
+        if (!trackedSkeletons.TryGetValue(skeletonId, out SkeletonTrackingData data)) return false;
+
+        var bundle = CalibrationStore.Load(calibrationName);
+        if (bundle == null)
+        {
+            Debug.LogWarning($"MultiplayerMotionTrackingManager: No saved calibration '{calibrationName}'");
+            return false;
+        }
+
+        if (bundle.source != Source.ToString())
+        {
+            Debug.LogWarning($"MultiplayerMotionTrackingManager: Calibration '{calibrationName}' was captured on " +
+                             $"source '{bundle.source}' but active source is '{Source}'. " +
+                             $"Joint positions may not transfer meaningfully.");
+        }
+
+        foreach (var module in data.modules)
+        {
+            if (module == null) continue;
+            var entry = bundle.entries.Find(e => e.moduleType == module.GetType().Name);
+            if (entry == null) continue;
+            module.DeserializeCalibration(entry.json);
+        }
+
+        return true;
+    }
+
     #endregion
 
     #region Public API - Configuration

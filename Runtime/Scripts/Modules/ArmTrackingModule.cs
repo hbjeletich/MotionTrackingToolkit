@@ -93,6 +93,20 @@ public class ArmTrackingModule : MotionTrackingModule
         isRightHandRaised = false;
     }
 
+    public override string SerializeCalibration()
+    {
+        var cal = CurrentCalibration as ArmCalibrationSnapshot;
+        if (cal == null) return null;
+        return JsonUtility.ToJson(cal);
+    }
+
+    public override void DeserializeCalibration(string json)
+    {
+        if (string.IsNullOrEmpty(json)) return;
+        var snapshot = JsonUtility.FromJson<ArmCalibrationSnapshot>(json);
+        if (snapshot != null) SetCalibration(snapshot);
+    }
+
     #endregion
 
     #region Update
