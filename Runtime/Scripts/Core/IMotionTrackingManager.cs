@@ -7,4 +7,6 @@ public interface IMotionTrackingManager
     MotionTrackingConfiguration Config { get; }
     Transform GetJointByName(string jointName);
     MotionSource Source { get; }
+    void LoadConfiguration(MotionTrackingConfiguration config);
+    void Recalibrate();
 }

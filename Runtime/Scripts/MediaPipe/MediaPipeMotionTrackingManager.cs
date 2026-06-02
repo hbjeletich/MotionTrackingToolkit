@@ -544,6 +544,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         return allRestored;
     }
 
+    public void LoadConfiguration(MotionTrackingConfiguration newConfig) => SwapConfiguration(newConfig);
+
     public void SwapConfiguration(MotionTrackingConfiguration newConfig)
     {
         if (newConfig == null)

@@ -816,6 +816,10 @@ public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingMa
 
     #region Public API - Configuration
 
+    public void LoadConfiguration(MotionTrackingConfiguration newConfig) => SwapConfiguration(newConfig);
+
+    public void Recalibrate() => RecalibrateAllSkeletons();
+
     public void SwapConfiguration(MotionTrackingConfiguration newConfig)
     {
         if (newConfig == null)

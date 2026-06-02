@@ -21,4 +21,9 @@ public class SkeletonMotionTrackingContext : IMotionTrackingManager
         // call to the multiplayer manager with the specific skeleton ID
         return multiplayerManager?.GetJointByName(skeletonId, jointName);
     }
+
+    public void LoadConfiguration(MotionTrackingConfiguration config) =>
+        multiplayerManager?.LoadConfiguration(config);
+
+    public void Recalibrate() => multiplayerManager?.RecalibrateSkeleton(skeletonId);
 }
