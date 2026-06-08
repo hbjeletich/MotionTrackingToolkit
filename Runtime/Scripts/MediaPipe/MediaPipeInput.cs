@@ -12,10 +12,13 @@ using UnityEngine;
 /// Analogous to CapturyNetworkPlugin — raw input from an external system.
 ///
 /// Packet format (from Python):
-///   [timestamp: float32] [landmark_count: int32]
-///   [x0, y0, z0, confidence0, x1, y1, z1, confidence1, ...] : float32 each
+///   [timestamp: float32] [landmark_count: int32] [mode: int32]
+///   [hip_x, hip_y, hip_z: float32]
+///   [x, y, z, confidence: float32] × landmark_count
 ///
-/// Positions arrive pre-converted to Unity's coordinate system (Y-up, right-handed).
+/// mode 0 = single-cam world landmarks (body-relative, hip anchor is zero)
+/// mode 1 = triangulated absolute room-frame positions
+/// Positions are pre-converted to Unity's coordinate system (Y-up, right-handed).
 /// </summary>
 public class MediaPipeInput : MonoBehaviour
 {
@@ -29,6 +32,8 @@ public class MediaPipeInput : MonoBehaviour
     private Vector3[] landmarkPositions = new Vector3[33];
     private float[] landmarkConfidence = new float[33];
     private float latestTimestamp = 0f;
+    private int latestMode = 0;
+    private Vector3 latestHipAnchor = Vector3.zero;
     private bool hasData = false;
 
     // thread safety
@@ -56,6 +61,33 @@ public class MediaPipeInput : MonoBehaviour
             Array.Copy(landmarkPositions, positions, 33);
             if (confidence != null)
                 Array.Copy(landmarkConfidence, confidence, 33);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Copy the latest frame — landmarks, mode, and hip anchor — in a single lock.
+    /// Returns false if no data has been received yet.
+    /// mode 0 = single-cam body-relative; mode 1 = triangulated absolute room frame.
+    /// hipAnchor is zero when mode == 0.
+    /// </summary>
+    public bool TryGetFrame(Vector3[] positions, float[] confidence, out int mode, out Vector3 hipAnchor)
+    {
+        if (!hasData)
+        {
+            mode = 0;
+            hipAnchor = Vector3.zero;
+            return false;
+        }
+
+        lock (dataLock)
+        {
+            Array.Copy(landmarkPositions, positions, 33);
+            if (confidence != null)
+                Array.Copy(landmarkConfidence, confidence, 33);
+            mode = latestMode;
+            hipAnchor = latestHipAnchor;
         }
 
         return true;
@@ -141,13 +173,19 @@ public class MediaPipeInput : MonoBehaviour
 
     private void ParsePacket(byte[] data)
     {
-        // minimum size: timestamp(4) + count(4) + at least 1 landmark(16) = 24
+        // minimum size: timestamp(4) + count(4) + mode(4) + hipAnchor(12) = 24 header bytes
         if (data.Length < 24) return;
 
         int offset = 0;
 
         float timestamp = BitConverter.ToSingle(data, offset); offset += 4;
         int count = BitConverter.ToInt32(data, offset); offset += 4;
+        int mode = BitConverter.ToInt32(data, offset); offset += 4;
+
+        float hx = BitConverter.ToSingle(data, offset); offset += 4;
+        float hy = BitConverter.ToSingle(data, offset); offset += 4;
+        float hz = BitConverter.ToSingle(data, offset); offset += 4;
+        // offset == 24 here
 
         if (count < 33) return;
 
@@ -169,6 +207,8 @@ public class MediaPipeInput : MonoBehaviour
             }
 
             latestTimestamp = timestamp;
+            latestMode = mode;
+            latestHipAnchor = new Vector3(hx, hy, hz);
             hasData = true;
         }
     }

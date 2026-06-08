@@ -120,6 +120,14 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private List<MotionTrackingModule> allModules = new List<MotionTrackingModule>();
     private CapturyInput capturyInput;
 
+    // latest packet metadata (set each Update before UpdateLandmarkPositions)
+    private int latestPacketMode = 0;
+    private Vector3 latestHipAnchor = Vector3.zero;
+
+    // absolute hip in reference-camera frame metres (valid only when HasAbsoluteHip)
+    private Vector3 _latestAbsoluteHip = Vector3.zero;
+    private bool _hasAbsoluteHip = false;
+
     // state
     private bool isSystemCalibrated = false;
     private Coroutine activeCalibrationCoroutine = null;
@@ -151,6 +159,11 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool HasReceivedLandmarks => hasReceivedLandmarks;
     public int ActiveModuleCount => allModules.Count;
     public string CurrentConfigurationName => config?.configurationName ?? "None";
+
+    /// Raw reference-camera-frame hip position in metres (Unity axes). Only valid when last
+    /// packet was triangulated (mode 1). Step 4 will apply the room→game transform on top of this.
+    public Vector3 LatestAbsoluteHip => _latestAbsoluteHip;
+    public bool HasAbsoluteHip => _hasAbsoluteHip;
 
     #endregion
 
@@ -192,8 +205,11 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         if (mediaPipeInput == null || !mediaPipeInput.HasData) return;
 
         // read latest landmarks from the input receiver
-        if (!mediaPipeInput.TryGetLandmarks(positionBuffer, confidenceBuffer))
+        if (!mediaPipeInput.TryGetFrame(positionBuffer, confidenceBuffer, out latestPacketMode, out latestHipAnchor))
             return;
+
+        _hasAbsoluteHip = (latestPacketMode == 1);
+        _latestAbsoluteHip = latestHipAnchor;
 
         // update skeleton transforms
         UpdateLandmarkPositions();
@@ -350,9 +366,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     private void UpdateLandmarkPositions()
     {
+        // For triangulated packets (mode 1) the positions are absolute room-frame, so we subtract
+        // the hip anchor here to restore body-relative positions for modules — identical to the
+        // old behaviour. For mode 0 (single-cam world landmarks) the data is already body-relative.
+        Vector3 bodyOffset = (latestPacketMode == 1) ? latestHipAnchor : Vector3.zero;
         for (int i = 0; i < 33; i++)
         {
-            landmarkTransforms[i].localPosition = positionBuffer[i] * positionScale + worldOffset;
+            landmarkTransforms[i].localPosition = (positionBuffer[i] - bodyOffset) * positionScale + worldOffset;
         }
     }
 
