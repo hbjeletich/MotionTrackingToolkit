@@ -67,14 +67,13 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     private void Awake()
     {
+        if (config != null) ActiveManager?.LoadConfiguration(config);
+        if(config == null) Debug.LogWarning("No configuration set for MotionTrackingOrchestrator.");
+        if(ActiveManager == null) Debug.LogError("No active motion tracking manager found.");
         if (dontDestroyOnLoad) DontDestroyOnLoad(gameObject);
         SyncActiveState();
     }
 
-    private void Start()
-    {
-        if (config != null) ActiveManager?.LoadConfiguration(config);
-    }
 
     private void SyncActiveState()
     {

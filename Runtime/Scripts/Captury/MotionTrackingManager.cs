@@ -43,11 +43,11 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     void Awake()
     {
         SetupSingleton();
-        LoadDefaultConfiguration();
     }
 
     void Start()
     {
+        LoadDefaultConfiguration();
         InitializeCapturyInput();
         FindNetworkPlugin();
     }

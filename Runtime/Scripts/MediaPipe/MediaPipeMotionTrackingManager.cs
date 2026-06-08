@@ -159,9 +159,6 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool HasReceivedLandmarks => hasReceivedLandmarks;
     public int ActiveModuleCount => allModules.Count;
     public string CurrentConfigurationName => config?.configurationName ?? "None";
-
-    /// Raw reference-camera-frame hip position in metres (Unity axes). Only valid when last
-    /// packet was triangulated (mode 1). Step 4 will apply the room→game transform on top of this.
     public Vector3 LatestAbsoluteHip => _latestAbsoluteHip;
     public bool HasAbsoluteHip => _hasAbsoluteHip;
 
@@ -172,7 +169,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     void Awake()
     {
         SetupSingleton();
+    }
 
+    void Start()
+    {
         if (config == null)
         {
             Debug.LogWarning("MediaPipeMotionTrackingManager: No configuration assigned, creating default");
@@ -183,10 +183,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         BuildJointLookup();
         InitializeCapturyInput();
         InitializeModules();
-    }
 
-    void Start()
-    {
         if (mediaPipeInput == null)
             mediaPipeInput = GetComponent<MediaPipeInput>();
 

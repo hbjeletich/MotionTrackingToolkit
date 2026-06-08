@@ -130,11 +130,11 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     void Awake()
     {
         SetupSingleton();
-        LoadDefaultConfiguration();
     }
 
     void Start()
     {
+        LoadDefaultConfiguration();
         InitializeInputDevice();
         CreateJointProxies();
         FindBodySourceManager();
