@@ -43,6 +43,16 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
              "a live calibration. Leave blank to always calibrate live.")]
     [SerializeField] private string defaultCalibrationName = "";
 
+    [Header("Room Calibration")]
+    [Tooltip("If set and a matching saved room calibration exists, it loads on startup.")]
+    [SerializeField] private string defaultRoomCalibrationName = "";
+
+    [Tooltip("Seconds to wait before capturing room calibration. Stand at center, face screen during this time.")]
+    [SerializeField] private float roomCalibrationDelay = 3.0f;
+
+    [Tooltip("Room→game uniform scale. Default 1.0 = 1:1 metres.")]
+    [SerializeField] private float roomScale = 1.0f;
+
     #endregion
 
     #region MediaPipe Landmark Indices
@@ -128,6 +138,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private Vector3 _latestAbsoluteHip = Vector3.zero;
     private bool _hasAbsoluteHip = false;
 
+    // room calibration
+    private RoomCalibration activeRoomCalibration = null;
+    private Coroutine activeRoomCalibrationCoroutine = null;
+
     // state
     private bool isSystemCalibrated = false;
     private Coroutine activeCalibrationCoroutine = null;
@@ -161,6 +175,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public string CurrentConfigurationName => config?.configurationName ?? "None";
     public Vector3 LatestAbsoluteHip => _latestAbsoluteHip;
     public bool HasAbsoluteHip => _hasAbsoluteHip;
+    public bool HasRoomCalibration => activeRoomCalibration != null;
 
     #endregion
 
@@ -192,6 +207,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             Debug.LogError("MediaPipeMotionTrackingManager: No MediaPipeInput found! Add one to this GameObject.");
             return;
         }
+
+        TryLoadDefaultRoomCalibration();
 
         if (enableDebugLogging)
             Debug.Log($"MediaPipeMotionTrackingManager: Ready with {allModules.Count} modules, waiting for landmarks...");
@@ -480,6 +497,54 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         return LoadCalibration(defaultCalibrationName);
     }
 
+    private void TryLoadDefaultRoomCalibration()
+    {
+        if (string.IsNullOrEmpty(defaultRoomCalibrationName)) return;
+        if (!RoomCalibrationStore.Exists(defaultRoomCalibrationName)) return;
+        LoadRoomCalibration(defaultRoomCalibrationName);
+    }
+
+    private IEnumerator CaptureRoomCalibration(string saveName)
+    {
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Room calibration in {roomCalibrationDelay}s — stand at center, face screen...");
+
+        yield return new WaitForSeconds(roomCalibrationDelay);
+
+        if (!_hasAbsoluteHip)
+        {
+            Debug.LogWarning("MediaPipeMotionTrackingManager: CaptureRoomCalibration — no triangulated data (mode 0), aborting.");
+            activeRoomCalibrationCoroutine = null;
+            yield break;
+        }
+
+        float leftAnkleY  = positionBuffer[(int)PoseLandmark.LeftAnkle].y;
+        float rightAnkleY = positionBuffer[(int)PoseLandmark.RightAnkle].y;
+
+        var cal = new RoomCalibration
+        {
+            calibrationName = string.IsNullOrEmpty(saveName) ? "room" : saveName,
+            source          = Source.ToString(),
+            timestamp       = Time.time,
+            originOffset    = _latestAbsoluteHip,
+            yawDegrees      = hipsJoint.eulerAngles.y,
+            floorHeight     = Mathf.Min(leftAnkleY, rightAnkleY),
+            scale           = roomScale
+        };
+
+        activeRoomCalibration = cal;
+
+        if (!string.IsNullOrEmpty(saveName))
+            RoomCalibrationStore.Save(cal);
+
+        activeRoomCalibrationCoroutine = null;
+
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Room calibration done — " +
+                      $"origin={cal.originOffset}, yaw={cal.yawDegrees:F1}°, " +
+                      $"floor={cal.floorHeight:F3}m, scale={cal.scale}");
+    }
+
     #endregion
 
     #region Module Updates
@@ -517,6 +582,9 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     {
         if (activeCalibrationCoroutine != null)
             StopCoroutine(activeCalibrationCoroutine);
+
+        if (activeRoomCalibrationCoroutine != null)
+            StopCoroutine(activeRoomCalibrationCoroutine);
 
         CleanupModules();
 
@@ -648,6 +716,72 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     {
         if (index >= 0 && index < 33) return confidenceBuffer[index];
         return 0f;
+    }
+
+    /// <summary>
+    /// Starts the room calibration countdown. Player should stand at room center, facing screen.
+    /// Requires triangulated data (mode 1) — aborts silently if only single-cam fallback is active.
+    /// On completion, saves under <see cref="defaultRoomCalibrationName"/> if that field is set.
+    /// </summary>
+    public void CalibrateRoom()
+    {
+        if (!_hasAbsoluteHip)
+        {
+            Debug.LogWarning("MediaPipeMotionTrackingManager: CalibrateRoom — not in triangulated mode, ensure multi-camera is running.");
+            return;
+        }
+
+        if (activeRoomCalibrationCoroutine != null)
+            StopCoroutine(activeRoomCalibrationCoroutine);
+
+        activeRoomCalibrationCoroutine = StartCoroutine(CaptureRoomCalibration(defaultRoomCalibrationName));
+    }
+
+    public void SaveRoomCalibration(string name)
+    {
+        if (activeRoomCalibration == null)
+        {
+            Debug.LogWarning("MediaPipeMotionTrackingManager: No active room calibration to save.");
+            return;
+        }
+        activeRoomCalibration.calibrationName = name;
+        RoomCalibrationStore.Save(activeRoomCalibration);
+    }
+
+    public bool LoadRoomCalibration(string name)
+    {
+        var cal = RoomCalibrationStore.Load(name);
+        if (cal == null)
+        {
+            Debug.LogWarning($"MediaPipeMotionTrackingManager: No room calibration '{name}' found.");
+            return false;
+        }
+
+        if (cal.source != Source.ToString())
+            Debug.LogWarning($"MediaPipeMotionTrackingManager: Room calibration '{name}' was captured on " +
+                             $"source '{cal.source}', current source is '{Source}'.");
+
+        activeRoomCalibration = cal;
+
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Loaded room calibration '{name}'");
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns the player's current position in game space.
+    /// Returns false if the last packet was not triangulated (mode 0) or no room calibration is set.
+    /// </summary>
+    public bool TryGetRoomPosition(out Vector3 gamePos)
+    {
+        if (!_hasAbsoluteHip || activeRoomCalibration == null)
+        {
+            gamePos = Vector3.zero;
+            return false;
+        }
+        gamePos = activeRoomCalibration.GetRoomToGame().MultiplyPoint3x4(_latestAbsoluteHip);
+        return true;
     }
 
     public void SaveCalibration(string calibrationName)
