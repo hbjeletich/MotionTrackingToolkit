@@ -51,6 +51,14 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     public bool LoadCalibration(string calibrationName) => ActiveManager?.LoadCalibration(calibrationName) ?? false;
 
+    public bool SupportsRoomScale => ActiveManager?.SupportsRoomScale ?? false;
+
+    public bool TryGetRoomPosition(out Vector3 gamePosition)
+    {
+        if (ActiveManager == null) { gamePosition = Vector3.zero; return false; }
+        return ActiveManager.TryGetRoomPosition(out gamePosition);
+    }
+
     #endregion
 
     #region Private

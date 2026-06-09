@@ -711,6 +711,11 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         return joint;
     }
 
+    // Room-scale is not yet implemented for Kinect; depth sensor positions are sensor-relative
+    // and could be mapped with a sensor transform in a future pass.
+    public bool SupportsRoomScale => false;
+    public bool TryGetRoomPosition(out Vector3 gamePosition) { gamePosition = Vector3.zero; return false; }
+
     #endregion
 
     #region Public API

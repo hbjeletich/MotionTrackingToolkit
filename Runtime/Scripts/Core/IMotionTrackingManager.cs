@@ -11,4 +11,6 @@ public interface IMotionTrackingManager
     void Recalibrate();
     void SaveCalibration(string calibrationName);
     bool LoadCalibration(string calibrationName);
+    bool SupportsRoomScale { get; }
+    bool TryGetRoomPosition(out Vector3 gamePosition);
 }

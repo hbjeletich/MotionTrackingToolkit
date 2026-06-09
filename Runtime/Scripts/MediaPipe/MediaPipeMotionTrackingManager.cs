@@ -157,6 +157,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     public MotionTrackingConfiguration Config => config;
     public MotionSource Source => MotionSource.MediaPipe;
+    public bool SupportsRoomScale => _hasAbsoluteHip && activeRoomCalibration != null;
 
     public Transform GetJointByName(string jointName)
     {

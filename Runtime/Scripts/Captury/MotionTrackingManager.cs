@@ -37,6 +37,10 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     // public config
     public MotionTrackingConfiguration Config => config;
     public MotionSource Source => MotionSource.Captury;
+    // Room-scale is not yet implemented for Captury; Captury joint positions are already
+    // world-space and could drive this in a future pass.
+    public bool SupportsRoomScale => false;
+    public bool TryGetRoomPosition(out Vector3 gamePosition) { gamePosition = Vector3.zero; return false; }
 
     #region Awake, Start, Update, Destroy
 
