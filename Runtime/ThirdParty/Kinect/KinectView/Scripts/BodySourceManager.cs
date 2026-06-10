@@ -2,12 +2,17 @@
 using System.Collections;
 using Windows.Kinect;
 
-public class BodySourceManager : MonoBehaviour 
+public class BodySourceManager : MonoBehaviour
 {
     private KinectSensor _Sensor;
     private BodyFrameReader _Reader;
     private Body[] _Data = null;
-    
+
+    private UnityEngine.Vector4 _floorClipPlane = new UnityEngine.Vector4(0, 1, 0, 0);
+    private bool _floorClipPlaneValid = false;
+    public UnityEngine.Vector4 FloorClipPlane => _floorClipPlane;
+    public bool FloorClipPlaneValid => _floorClipPlaneValid;
+
     public Body[] GetData()
     {
         return _Data;
@@ -42,7 +47,11 @@ public class BodySourceManager : MonoBehaviour
                 }
                 
                 frame.GetAndRefreshBodyData(_Data);
-                
+
+                var fp = frame.FloorClipPlane;
+                _floorClipPlane = new UnityEngine.Vector4(fp.X, fp.Y, fp.Z, fp.W);
+                _floorClipPlaneValid = true;
+
                 frame.Dispose();
                 frame = null;
             }

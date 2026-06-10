@@ -43,6 +43,16 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
              "a live calibration. Leave blank to always calibrate live.")]
     [SerializeField] private string defaultCalibrationName = "";
 
+    [Header("Room Calibration")]
+    [Tooltip("If set and a matching saved room calibration exists, it loads on startup.")]
+    [SerializeField] private string defaultRoomCalibrationName = "";
+
+    [Tooltip("Seconds to wait before capturing room calibration. Stand at center, face forward.")]
+    [SerializeField] private float roomCalibrationDelay = 3.0f;
+
+    [Tooltip("Room→game uniform scale. Default 1.0 = 1:1 metres.")]
+    [SerializeField] private float roomScale = 1.0f;
+
     #endregion
 
     #region Enums
@@ -70,6 +80,22 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     private bool isSystemCalibrated = false;
     private Coroutine activeCalibrationCoroutine = null;
     private ulong currentTrackedBodyId = 0;
+
+    // room calibration
+    private RoomCalibration activeRoomCalibration = null;
+    private Coroutine activeRoomCalibrationCoroutine = null;
+    private Body _currentBody = null;
+    private bool _capturingBoundary = false;
+    private List<Vector2> _boundaryInProgress = new List<Vector2>();
+    private float _boundaryMinReliableDistance = float.MaxValue;
+    private const float BOUNDARY_SAMPLE_DISTANCE = 0.1f;
+    private static readonly JointType[] KeyJointsForQuality = {
+        JointType.SpineBase, JointType.SpineMid,
+        JointType.HipLeft, JointType.HipRight,
+        JointType.KneeLeft, JointType.KneeRight,
+        JointType.ShoulderLeft, JointType.ShoulderRight
+    };
+    private const int MIN_TRACKED_KEY_JOINTS = 6;
 
     private static KinectMotionTrackingManager instance;
     public static KinectMotionTrackingManager Instance => instance;
@@ -138,6 +164,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         InitializeInputDevice();
         CreateJointProxies();
         FindBodySourceManager();
+        TryLoadDefaultRoomCalibration();
     }
 
     void Update()
@@ -145,6 +172,9 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         if (bodySourceManager == null) return;
 
         bool hasBody = UpdateBodyData();
+
+        if (_capturingBoundary && isBodyTracked && _currentBody != null)
+            UpdateBoundaryCapture();
 
         if (isSystemCalibrated && inputDevice != null && isBodyTracked)
         {
@@ -425,6 +455,8 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
                 );
             }
         }
+
+        _currentBody = body;
     }
 
     private void OnBodyFound(ulong bodyId)
@@ -467,6 +499,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
         isBodyTracked = false;
         currentTrackedBodyId = 0;
+        _currentBody = null;
     }
 
     #endregion
@@ -684,6 +717,9 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     private void CleanupSystem()
     {
+        if (activeRoomCalibrationCoroutine != null) StopCoroutine(activeRoomCalibrationCoroutine);
+        _capturingBoundary = false;
+
         CleanupModules();
 
         if (jointProxyRoot != null)
@@ -711,13 +747,24 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         return joint;
     }
 
-    // Room-scale is not yet implemented for Kinect; depth sensor positions are sensor-relative
-    // and could be mapped with a sensor transform in a future pass.
-    public bool SupportsRoomScale => false;
-    public bool TryGetRoomPosition(out Vector3 gamePosition) { gamePosition = Vector3.zero; return false; }
-    public bool HasRoomBounds => false;
-    public Vector3[] GetRoomBoundary() => System.Array.Empty<Vector3>();
-    public float RoomMinTrackingDistance => 0f;
+    public bool SupportsRoomScale => isBodyTracked && activeRoomCalibration != null;
+
+    public bool TryGetRoomPosition(out Vector3 gamePosition)
+    {
+        if (!isBodyTracked || activeRoomCalibration == null ||
+            !jointLookup.TryGetValue("SpineBase", out Transform spineBase))
+        { gamePosition = Vector3.zero; return false; }
+        gamePosition = activeRoomCalibration.GetRoomToGame().MultiplyPoint3x4(spineBase.position);
+        return true;
+    }
+
+    public bool HasRoomBounds => activeRoomCalibration?.HasBoundary ?? false;
+    public Vector3[] GetRoomBoundary() =>
+        activeRoomCalibration?.GetGameSpaceBoundary() ?? System.Array.Empty<Vector3>();
+    public float RoomMinTrackingDistance =>
+        (activeRoomCalibration != null && activeRoomCalibration.HasMinTrackingDistance)
+            ? activeRoomCalibration.minTrackingDistance * activeRoomCalibration.scale
+            : 0f;
 
     #endregion
 
@@ -753,6 +800,164 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
             Debug.Log($"KinectMotionTrackingManager: LoadPreviousCalibration — all restored: {allRestored}");
 
         return allRestored;
+    }
+
+    /// <summary>
+    /// Start the room calibration countdown. Stand at room center, face forward.
+    /// </summary>
+    public void CalibrateRoom()
+    {
+        if (!isBodyTracked)
+        { Debug.LogWarning("KinectMotionTrackingManager: CalibrateRoom — no body tracked."); return; }
+        if (activeRoomCalibrationCoroutine != null) StopCoroutine(activeRoomCalibrationCoroutine);
+        activeRoomCalibrationCoroutine = StartCoroutine(CaptureRoomCalibration(defaultRoomCalibrationName));
+    }
+
+    public void SaveRoomCalibration(string name)
+    {
+        if (activeRoomCalibration == null)
+        { Debug.LogWarning("KinectMotionTrackingManager: No active room calibration to save."); return; }
+        activeRoomCalibration.calibrationName = name;
+        RoomCalibrationStore.Save(activeRoomCalibration);
+    }
+
+    public bool LoadRoomCalibration(string name)
+    {
+        var cal = RoomCalibrationStore.Load(name);
+        if (cal == null)
+        { Debug.LogWarning($"KinectMotionTrackingManager: No room calibration '{name}' found."); return false; }
+        if (cal.source != Source.ToString())
+            Debug.LogWarning($"KinectMotionTrackingManager: Room calibration '{name}' captured on '{cal.source}', current source is '{Source}'.");
+        activeRoomCalibration = cal;
+        if (enableDebugLogging) Debug.Log($"KinectMotionTrackingManager: Loaded room calibration '{name}'");
+        return true;
+    }
+
+    /// <summary>
+    /// Begin recording room boundary. Walk the perimeter of the physical play area.
+    /// Requires an active room calibration (run CalibrateRoom first).
+    /// Minimum tracking distance is detected automatically from joint TrackingState.
+    /// </summary>
+    public void StartBoundaryWalk()
+    {
+        if (!isBodyTracked)
+        { Debug.LogWarning("KinectMotionTrackingManager: StartBoundaryWalk — no body tracked."); return; }
+        if (activeRoomCalibration == null)
+        { Debug.LogWarning("KinectMotionTrackingManager: StartBoundaryWalk — run CalibrateRoom first."); return; }
+        _boundaryInProgress.Clear();
+        _boundaryMinReliableDistance = float.MaxValue;
+        _capturingBoundary = true;
+        if (enableDebugLogging) Debug.Log("KinectMotionTrackingManager: Boundary walk started — walk the perimeter.");
+    }
+
+    /// <summary>
+    /// Finish recording. Stores boundary + auto-derived min tracking distance in the active calibration.
+    /// Call SaveRoomCalibration to persist.
+    /// </summary>
+    public void StopBoundaryWalk()
+    {
+        _capturingBoundary = false;
+        if (_boundaryInProgress.Count < 3)
+        { Debug.LogWarning($"KinectMotionTrackingManager: Boundary walk too short ({_boundaryInProgress.Count} points)."); return; }
+        activeRoomCalibration.boundaryPoints = _boundaryInProgress.ToArray();
+        if (_boundaryMinReliableDistance < float.MaxValue)
+            activeRoomCalibration.minTrackingDistance = _boundaryMinReliableDistance;
+        _boundaryInProgress.Clear();
+        _boundaryMinReliableDistance = float.MaxValue;
+        if (enableDebugLogging)
+            Debug.Log($"KinectMotionTrackingManager: Boundary captured — {activeRoomCalibration.boundaryPoints.Length} points, " +
+                      $"minTrackingDistance={activeRoomCalibration.minTrackingDistance:F2}m");
+    }
+
+    #endregion
+
+    #region Room Calibration
+
+    private void TryLoadDefaultRoomCalibration()
+    {
+        if (string.IsNullOrEmpty(defaultRoomCalibrationName)) return;
+        if (!RoomCalibrationStore.Exists(defaultRoomCalibrationName)) return;
+        LoadRoomCalibration(defaultRoomCalibrationName);
+    }
+
+    private IEnumerator CaptureRoomCalibration(string saveName)
+    {
+        if (enableDebugLogging)
+            Debug.Log($"KinectMotionTrackingManager: Room calibration in {roomCalibrationDelay}s — stand at center, face forward...");
+
+        yield return new WaitForSeconds(roomCalibrationDelay);
+
+        if (!isBodyTracked || !jointLookup.TryGetValue("SpineBase", out Transform spineBase))
+        {
+            Debug.LogWarning("KinectMotionTrackingManager: CaptureRoomCalibration — no body tracked, aborting.");
+            activeRoomCalibrationCoroutine = null;
+            yield break;
+        }
+
+        Vector3 origin = spineBase.position;
+        float floorHeight = GetFloorHeightAtPosition(origin.x, origin.z);
+        float yaw = spineBase.rotation.eulerAngles.y;
+
+        var cal = new RoomCalibration
+        {
+            calibrationName = string.IsNullOrEmpty(saveName) ? "room" : saveName,
+            source = Source.ToString(),
+            timestamp = Time.time,
+            originOffset = origin,
+            yawDegrees = yaw,
+            floorHeight = floorHeight,
+            scale = roomScale
+        };
+
+        activeRoomCalibration = cal;
+        if (!string.IsNullOrEmpty(saveName))
+            RoomCalibrationStore.Save(cal);
+
+        activeRoomCalibrationCoroutine = null;
+
+        if (enableDebugLogging)
+            Debug.Log($"KinectMotionTrackingManager: Room calibration done — origin={origin}, yaw={yaw:F1}°, floor={floorHeight:F3}m");
+    }
+
+    private float GetFloorHeightAtPosition(float x, float z)
+    {
+        if (bodySourceManager != null && bodySourceManager.FloorClipPlaneValid)
+        {
+            var fp = bodySourceManager.FloorClipPlane;
+            // plane: A*x + B*y + C*z + D = 0 → y = -(A*x + C*z + D) / B
+            return -(fp.x * x + fp.z * z + fp.w) / fp.y;
+        }
+        // fallback: minimum ankle height
+        float la = jointLookup.TryGetValue("AnkleLeft",  out Transform tl) ? tl.position.y : 0f;
+        float ra = jointLookup.TryGetValue("AnkleRight", out Transform tr) ? tr.position.y : 0f;
+        return Mathf.Min(la, ra);
+    }
+
+    private void UpdateBoundaryCapture()
+    {
+        if (!jointLookup.TryGetValue("SpineBase", out Transform spineBase)) return;
+        var current = new Vector2(spineBase.position.x, spineBase.position.z);
+        if (_boundaryInProgress.Count == 0 ||
+            Vector2.Distance(current, _boundaryInProgress[_boundaryInProgress.Count - 1]) >= BOUNDARY_SAMPLE_DISTANCE)
+            _boundaryInProgress.Add(current);
+
+        if (activeRoomCalibration != null && IsCurrentTrackingReliable())
+        {
+            var originXZ = new Vector2(activeRoomCalibration.originOffset.x, activeRoomCalibration.originOffset.z);
+            float dist = Vector2.Distance(current, originXZ);
+            if (dist < _boundaryMinReliableDistance)
+                _boundaryMinReliableDistance = dist;
+        }
+    }
+
+    private bool IsCurrentTrackingReliable()
+    {
+        if (_currentBody == null) return false;
+        int count = 0;
+        foreach (var jt in KeyJointsForQuality)
+            if (_currentBody.Joints[jt].TrackingState == TrackingState.Tracked)
+                count++;
+        return count >= MIN_TRACKED_KEY_JOINTS;
     }
 
     #endregion
