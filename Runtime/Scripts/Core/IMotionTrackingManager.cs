@@ -13,4 +13,7 @@ public interface IMotionTrackingManager
     bool LoadCalibration(string calibrationName);
     bool SupportsRoomScale { get; }
     bool TryGetRoomPosition(out Vector3 gamePosition);
+    bool HasRoomBounds { get; }
+    Vector3[] GetRoomBoundary();
+    float RoomMinTrackingDistance { get; }
 }

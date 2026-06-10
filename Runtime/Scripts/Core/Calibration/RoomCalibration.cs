@@ -15,6 +15,32 @@ public class RoomCalibration
     public float floorHeight;
     public float scale = 1.0f;     // room→game uniform scale; 1.0 = 1:1 (metres)
 
+    // Optional boundary walk — XZ positions in room frame. Empty = not captured.
+    public Vector2[] boundaryPoints = new Vector2[0];
+    // Optional min reliable tracking distance from originOffset (room-frame metres). 0 = not captured.
+    public float minTrackingDistance = 0f;
+
+    public bool HasBoundary => boundaryPoints != null && boundaryPoints.Length >= 3;
+    public bool HasMinTrackingDistance => minTrackingDistance > 0f;
+
+    /// <summary>
+    /// Returns boundary polygon in game space (XZ plane, Y=0). Empty array if HasBoundary==false.
+    /// </summary>
+    public Vector3[] GetGameSpaceBoundary()
+    {
+        if (!HasBoundary) return System.Array.Empty<Vector3>();
+        var m = GetRoomToGame();
+        var result = new Vector3[boundaryPoints.Length];
+        for (int i = 0; i < boundaryPoints.Length; i++)
+        {
+            // use floorHeight as Y so the transform maps it to Y=0 in game space
+            var roomPoint = new Vector3(boundaryPoints[i].x, floorHeight, boundaryPoints[i].y);
+            var gp = m.MultiplyPoint3x4(roomPoint);
+            result[i] = new Vector3(gp.x, 0f, gp.z);
+        }
+        return result;
+    }
+
     /// <summary>
     /// Returns the matrix that maps a reference-camera-frame position into game space:
     /// center at captured origin (XZ) and floor (Y), rotate to align facing, then scale.

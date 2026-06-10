@@ -41,6 +41,9 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     // world-space and could drive this in a future pass.
     public bool SupportsRoomScale => false;
     public bool TryGetRoomPosition(out Vector3 gamePosition) { gamePosition = Vector3.zero; return false; }
+    public bool HasRoomBounds => false;
+    public Vector3[] GetRoomBoundary() => System.Array.Empty<Vector3>();
+    public float RoomMinTrackingDistance => 0f;
 
     #region Awake, Start, Update, Destroy
 

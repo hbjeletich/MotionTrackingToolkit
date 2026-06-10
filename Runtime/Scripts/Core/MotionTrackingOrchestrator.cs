@@ -59,6 +59,10 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
         return ActiveManager.TryGetRoomPosition(out gamePosition);
     }
 
+    public bool HasRoomBounds => ActiveManager?.HasRoomBounds ?? false;
+    public Vector3[] GetRoomBoundary() => ActiveManager?.GetRoomBoundary() ?? System.Array.Empty<Vector3>();
+    public float RoomMinTrackingDistance => ActiveManager?.RoomMinTrackingDistance ?? 0f;
+
     #endregion
 
     #region Private

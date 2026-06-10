@@ -142,6 +142,11 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private RoomCalibration activeRoomCalibration = null;
     private Coroutine activeRoomCalibrationCoroutine = null;
 
+    // boundary walk
+    private bool _capturingBoundary = false;
+    private List<Vector2> _boundaryInProgress = new List<Vector2>();
+    private const float BOUNDARY_SAMPLE_DISTANCE = 0.1f;
+
     // state
     private bool isSystemCalibrated = false;
     private Coroutine activeCalibrationCoroutine = null;
@@ -158,6 +163,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public MotionTrackingConfiguration Config => config;
     public MotionSource Source => MotionSource.MediaPipe;
     public bool SupportsRoomScale => _hasAbsoluteHip && activeRoomCalibration != null;
+    public bool HasRoomBounds => activeRoomCalibration?.HasBoundary ?? false;
+    public Vector3[] GetRoomBoundary() =>
+        activeRoomCalibration?.GetGameSpaceBoundary() ?? System.Array.Empty<Vector3>();
+    public float RoomMinTrackingDistance =>
+        (activeRoomCalibration != null && activeRoomCalibration.HasMinTrackingDistance)
+            ? activeRoomCalibration.minTrackingDistance * activeRoomCalibration.scale
+            : 0f;
 
     public Transform GetJointByName(string jointName)
     {
@@ -225,6 +237,14 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
         _hasAbsoluteHip = (latestPacketMode == 1);
         _latestAbsoluteHip = latestHipAnchor;
+
+        if (_capturingBoundary && _hasAbsoluteHip)
+        {
+            var current = new Vector2(_latestAbsoluteHip.x, _latestAbsoluteHip.z);
+            if (_boundaryInProgress.Count == 0 ||
+                Vector2.Distance(current, _boundaryInProgress[_boundaryInProgress.Count - 1]) >= BOUNDARY_SAMPLE_DISTANCE)
+                _boundaryInProgress.Add(current);
+        }
 
         // update skeleton transforms
         UpdateLandmarkPositions();
@@ -736,6 +756,51 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             StopCoroutine(activeRoomCalibrationCoroutine);
 
         activeRoomCalibrationCoroutine = StartCoroutine(CaptureRoomCalibration(defaultRoomCalibrationName));
+    }
+
+    /// <summary>
+    /// Begin recording room boundary. Walk the perimeter of the physical play area.
+    /// Requires an active room calibration (run CalibrateRoom first) and triangulated data.
+    /// </summary>
+    public void StartBoundaryWalk()
+    {
+        if (!_hasAbsoluteHip)
+        { Debug.LogWarning("MediaPipeMotionTrackingManager: StartBoundaryWalk — no triangulated data."); return; }
+        if (activeRoomCalibration == null)
+        { Debug.LogWarning("MediaPipeMotionTrackingManager: StartBoundaryWalk — run CalibrateRoom first."); return; }
+        _boundaryInProgress.Clear();
+        _capturingBoundary = true;
+        if (enableDebugLogging) Debug.Log("MediaPipeMotionTrackingManager: Boundary walk started — walk the perimeter.");
+    }
+
+    /// <summary>
+    /// Finish recording. Stores the boundary in the active room calibration.
+    /// Call SaveRoomCalibration to persist.
+    /// </summary>
+    public void StopBoundaryWalk()
+    {
+        _capturingBoundary = false;
+        if (_boundaryInProgress.Count < 3)
+        { Debug.LogWarning($"MediaPipeMotionTrackingManager: Boundary walk too short ({_boundaryInProgress.Count} points)."); return; }
+        activeRoomCalibration.boundaryPoints = _boundaryInProgress.ToArray();
+        _boundaryInProgress.Clear();
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Boundary captured — {activeRoomCalibration.boundaryPoints.Length} points.");
+    }
+
+    /// <summary>
+    /// Record current hip position as the minimum reliable tracking distance from room center.
+    /// Walk to the closest point where tracking still works, then call this.
+    /// </summary>
+    public void CaptureMinTrackingDistance()
+    {
+        if (!_hasAbsoluteHip || activeRoomCalibration == null)
+        { Debug.LogWarning("MediaPipeMotionTrackingManager: CaptureMinTrackingDistance — needs triangulated data + room calibration."); return; }
+        var hipXZ    = new Vector2(_latestAbsoluteHip.x, _latestAbsoluteHip.z);
+        var originXZ = new Vector2(activeRoomCalibration.originOffset.x, activeRoomCalibration.originOffset.z);
+        activeRoomCalibration.minTrackingDistance = Vector2.Distance(hipXZ, originXZ);
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Min tracking distance = {activeRoomCalibration.minTrackingDistance:F2}m");
     }
 
     public void SaveRoomCalibration(string name)
