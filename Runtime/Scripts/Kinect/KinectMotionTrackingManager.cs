@@ -935,8 +935,8 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     private void UpdateBoundaryCapture()
     {
-        if (!jointLookup.TryGetValue("SpineBase", out Transform spineBase)) return;
-        var current = new Vector2(spineBase.position.x, spineBase.position.z);
+        if (!jointLookup.TryGetValue("Head", out Transform head)) return;
+        var current = new Vector2(head.position.x, head.position.z);
         if (_boundaryInProgress.Count == 0 ||
             Vector2.Distance(current, _boundaryInProgress[_boundaryInProgress.Count - 1]) >= BOUNDARY_SAMPLE_DISTANCE)
             _boundaryInProgress.Add(current);

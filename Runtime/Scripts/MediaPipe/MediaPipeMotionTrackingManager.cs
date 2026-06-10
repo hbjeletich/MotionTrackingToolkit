@@ -238,9 +238,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         _hasAbsoluteHip = (latestPacketMode == 1);
         _latestAbsoluteHip = latestHipAnchor;
 
-        if (_capturingBoundary && _hasAbsoluteHip)
+        if (_capturingBoundary && _hasAbsoluteHip && headJoint != null)
         {
-            var current = new Vector2(_latestAbsoluteHip.x, _latestAbsoluteHip.z);
+            Vector3 absHead = headJoint.localPosition + _latestAbsoluteHip;
+            var current = new Vector2(absHead.x, absHead.z);
             if (_boundaryInProgress.Count == 0 ||
                 Vector2.Distance(current, _boundaryInProgress[_boundaryInProgress.Count - 1]) >= BOUNDARY_SAMPLE_DISTANCE)
                 _boundaryInProgress.Add(current);

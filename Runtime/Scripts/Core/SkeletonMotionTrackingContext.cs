@@ -41,4 +41,19 @@ public class SkeletonMotionTrackingContext : IMotionTrackingManager
             return multiplayerManager.LoadCalibration(playerNumber, calibrationName);
         return false;
     }
+
+    public bool SupportsRoomScale => multiplayerManager?.SupportsRoomScale ?? false;
+
+    public bool TryGetRoomPosition(out Vector3 gamePosition)
+    {
+        if (multiplayerManager != null) return multiplayerManager.TryGetRoomPosition(out gamePosition);
+        gamePosition = Vector3.zero;
+        return false;
+    }
+
+    public bool HasRoomBounds => multiplayerManager?.HasRoomBounds ?? false;
+
+    public Vector3[] GetRoomBoundary() => multiplayerManager?.GetRoomBoundary() ?? System.Array.Empty<Vector3>();
+
+    public float RoomMinTrackingDistance => multiplayerManager?.RoomMinTrackingDistance ?? 0f;
 }
