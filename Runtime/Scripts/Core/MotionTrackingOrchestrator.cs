@@ -79,6 +79,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     private void Awake()
     {
+        UpdateConfigMotionSource();
         if (config != null) ActiveManager?.LoadConfiguration(config);
         if(config == null) Debug.LogWarning("No configuration set for MotionTrackingOrchestrator.");
         if(ActiveManager == null) Debug.LogError("No active motion tracking manager found.");
@@ -92,7 +93,18 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
         if (capturyManager   != null) capturyManager.gameObject.SetActive(activeSource == MotionSource.Captury);
         if (kinectManager    != null) kinectManager.gameObject.SetActive(activeSource == MotionSource.Kinect);
         if (mediaPipeManager != null) mediaPipeManager.gameObject.SetActive(activeSource == MotionSource.MediaPipe);
+        UpdateConfigMotionSource();
     }
 
+    private void UpdateConfigMotionSource()
+    {
+        if (config == null) return;
+        if (config.motionSource != activeSource)
+        {
+            Debug.LogWarning($"[MotionTrackingOrchestrator] Config motion source ({config.motionSource}) " +
+                             $"does not match active source ({activeSource}). Updating config.");
+            config.motionSource = activeSource;
+        }
+    }
     #endregion
 }

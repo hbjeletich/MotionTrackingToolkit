@@ -65,14 +65,14 @@ public class BodySourceManager : MonoBehaviour
             _Reader.Dispose();
             _Reader = null;
         }
-        
+
         if (_Sensor != null)
         {
             if (_Sensor.IsOpen)
             {
                 _Sensor.Close();
             }
-            
+
             _Sensor = null;
         }
     }
