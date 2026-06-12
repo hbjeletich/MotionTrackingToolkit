@@ -38,6 +38,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     [Tooltip("World offset applied to all joints (positions the skeleton in the scene)")]
     [SerializeField] private Vector3 worldOffset = Vector3.zero;
 
+    [Tooltip("Flip left/right (negate X). Enable for any camera that faces the subject — " +
+             "MediaPipe's world X axis is camera-right, which is the subject's left.")]
+    [SerializeField] private bool flipX = true;
+
     [Header("Calibration")]
     [Tooltip("If set and a matching saved calibration exists, it loads on startup instead of running " +
              "a live calibration. Leave blank to always calibrate live.")]
@@ -356,6 +360,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         jointLookup["Spine1"] = spine1Joint;
         jointLookup["Spine4"] = spine4Joint;
 
+        // Kinect-compatible aliases used by TorsoTrackingModule
+        jointLookup["SpineBase"] = hipsJoint;
+        jointLookup["SpineShoulder"] = spine4Joint;
+
         if (enableDebugLogging)
             Debug.Log($"MediaPipeMotionTrackingManager: Joint lookup built with {jointLookup.Count} entries");
     }
@@ -406,9 +414,12 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         // the hip anchor here to restore body-relative positions for modules — identical to the
         // old behaviour. For mode 0 (single-cam world landmarks) the data is already body-relative.
         Vector3 bodyOffset = (latestPacketMode == 1) ? latestHipAnchor : Vector3.zero;
+        float xSign = flipX ? -1f : 1f;
         for (int i = 0; i < 33; i++)
         {
-            landmarkTransforms[i].localPosition = (positionBuffer[i] - bodyOffset) * positionScale + worldOffset;
+            Vector3 p = (positionBuffer[i] - bodyOffset) * positionScale + worldOffset;
+            p.x *= xSign;
+            landmarkTransforms[i].localPosition = p;
         }
     }
 

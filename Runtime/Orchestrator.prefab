@@ -196,6 +196,9 @@ MonoBehaviour:
   enableSmoothing: 1
   positionSmoothingFactor: 0.5
   defaultCalibrationName: 
+  defaultRoomCalibrationName: 
+  roomCalibrationDelay: 3
+  roomScale: 1
 --- !u!1 &4796906204058193824
 GameObject:
   m_ObjectHideFlags: 0
@@ -582,7 +585,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &6940846469203051093
 Transform:
   m_ObjectHideFlags: 0
@@ -675,6 +678,9 @@ MonoBehaviour:
   positionScale: 1
   worldOffset: {x: 0, y: 0, z: 0}
   defaultCalibrationName: 
+  defaultRoomCalibrationName: 
+  roomCalibrationDelay: 3
+  roomScale: 1
 --- !u!1001 &1711272150699752644
 PrefabInstance:
   m_ObjectHideFlags: 0
