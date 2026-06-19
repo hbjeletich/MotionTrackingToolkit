@@ -167,6 +167,27 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         TryLoadDefaultRoomCalibration();
     }
 
+    void OnEnable()
+    {
+        InputSystem.onDeviceChange += HandleInputDeviceChange;
+    }
+
+    void OnDisable()
+    {
+        InputSystem.onDeviceChange -= HandleInputDeviceChange;
+    }
+
+    // Keep inputDevice reference current when the Input System recreates device
+    private void HandleInputDeviceChange(InputDevice device, InputDeviceChange change)
+    {
+        if (!(device is CapturyInput capturyDevice)) return;
+
+        if (change == InputDeviceChange.Added)
+            inputDevice = capturyDevice;
+        else if (change == InputDeviceChange.Removed && device == inputDevice)
+            inputDevice = null;
+    }
+
     void Update()
     {
         if (bodySourceManager == null) return;
@@ -602,6 +623,13 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     private void UpdateAllModules()
     {
+        // inputDevice may have been removed, fall back to GetDevice as a safety net.
+        if (inputDevice == null || !inputDevice.added)
+        {
+            inputDevice = InputSystem.GetDevice<CapturyInput>();
+            if (inputDevice == null) return;
+        }
+
         CapturyInputState state = new CapturyInputState();
 
         foreach (var module in allModules)
