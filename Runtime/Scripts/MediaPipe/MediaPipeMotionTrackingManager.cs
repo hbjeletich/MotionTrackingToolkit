@@ -19,7 +19,7 @@ using UnityEngine.InputSystem.LowLevel;
 ///   GameObject with MediaPipeInput + MediaPipeMotionTrackingManager
 ///   Run mediapipe_sender.py alongside Unity
 /// </summary>
-public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
+public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager
 {
     #region Configuration
 
@@ -262,7 +262,20 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             if (enableDebugLogging)
                 Debug.Log("MediaPipeMotionTrackingManager: First landmarks received, calibrating...");
 
-            if (TryLoadDefaultCalibration())
+            // Resolve joints before any calibration path so CalibrationHooks and LoadCalibration
+            // can both call SetCalibration on modules with valid resolvedJoints already populated.
+            foreach (var module in allModules)
+                module.PrepareForTracking();
+
+            bool externalCalibration = CalibrationHooks.OnSkeletonReadyForCalibration?.Invoke(this) ?? false;
+
+            if (externalCalibration)
+            {
+                isSystemCalibrated = true;
+                if (enableDebugLogging)
+                    Debug.Log("MediaPipeMotionTrackingManager: External calibration provided via hook — skipping auto-calibration");
+            }
+            else if (TryLoadDefaultCalibration())
             {
                 isSystemCalibrated = true;
                 if (enableDebugLogging)

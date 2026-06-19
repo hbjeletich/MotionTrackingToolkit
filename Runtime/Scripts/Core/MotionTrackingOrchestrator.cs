@@ -14,7 +14,17 @@ using CapturyToolkit.Kinect;
 ///
 /// Implements IMotionTrackingManager as a facade — other systems can hold a reference to
 /// the orchestrator without knowing which source is active.
+///
+/// Source override priority (highest → lowest):
+///   1. GlobalSourceOverride (set in code, e.g. from a bootstrap scene)
+///   2. PlayerPrefs "MTM.SourceOverride" (set via Tools > Motion Tracking menu or SetGlobalSource)
+///   3. Inspector activeSource value
+///
+/// Scene-to-scene handoff: if a DontDestroyOnLoad orchestrator already exists when a new scene
+/// loads, the newcomer hands its config to the survivor and destroys itself. Source carries
+/// forward; each scene's module config is respected.
 /// </summary>
+
 [DisallowMultipleComponent]
 public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 {
@@ -32,6 +42,16 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
     [SerializeField] private MotionTrackingManager capturyManager;
     [SerializeField] private KinectMotionTrackingManager kinectManager;
     [SerializeField] private MediaPipeMotionTrackingManager mediaPipeManager;
+
+    // ── Static source override ────────────────────────────────────────────────
+    // Set this in code (e.g. bootstrap scene) to override all Orchestrators
+    // without touching any scene files. Backed by PlayerPrefs for persistence
+    // across play sessions. Call SetGlobalSource / ClearGlobalSource to manage.
+    public static MotionSource? GlobalSourceOverride = null;
+    private const string PrefKey = "MTM.SourceOverride";
+
+    // Singleton — tracks the currently live (potentially DDOL) orchestrator.
+    private static MotionTrackingOrchestrator _instance;
 
     #region IMotionTrackingManager
 
@@ -79,12 +99,72 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     private void Awake()
     {
+        if (_instance != null && _instance != this)
+        {
+            // A persisted orchestrator already exists from a previous scene.
+            // Inherit its source so it carries forward, hand off our config so the
+            // survivor picks up this scene's module setup, then self-destruct.
+            activeSource = _instance.activeSource;
+            if (config != null)
+            {
+                _instance.config = config;
+                _instance.UpdateConfigMotionSource();
+                _instance.config.ApplySourceDefaults();
+                _instance.ActiveManager?.LoadConfiguration(_instance.config);
+                _instance.SyncActiveState();
+            }
+            Destroy(gameObject);
+            return;
+        }
+
+        // Apply dev source override: static field → PlayerPrefs → inspector value.
+        if (GlobalSourceOverride.HasValue)
+        {
+            activeSource = GlobalSourceOverride.Value;
+        }
+        else
+        {
+            int stored = PlayerPrefs.GetInt(PrefKey, -1);
+            if (stored >= 0 && System.Enum.IsDefined(typeof(MotionSource), stored))
+                activeSource = (MotionSource)stored;
+        }
+
+        _instance = this;
+
         UpdateConfigMotionSource();
         if (config != null) ActiveManager?.LoadConfiguration(config);
-        if(config == null) Debug.LogWarning("No configuration set for MotionTrackingOrchestrator.");
-        if(ActiveManager == null) Debug.LogError("No active motion tracking manager found.");
+        if (config == null) Debug.LogWarning("[MotionTrackingOrchestrator] No configuration set.");
+        if (ActiveManager == null) Debug.LogError("[MotionTrackingOrchestrator] No active manager found.");
         if (dontDestroyOnLoad) DontDestroyOnLoad(gameObject);
         SyncActiveState();
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this) _instance = null;
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Set a global source that overrides every Orchestrator's inspector value on startup.
+    /// Persists across play sessions via PlayerPrefs until ClearGlobalSource is called.
+    /// </summary>
+    public static void SetGlobalSource(MotionSource source)
+    {
+        GlobalSourceOverride = source;
+        PlayerPrefs.SetInt(PrefKey, (int)source);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>
+    /// Remove the global override. Orchestrators revert to their inspector activeSource values.
+    /// </summary>
+    public static void ClearGlobalSource()
+    {
+        GlobalSourceOverride = null;
+        PlayerPrefs.DeleteKey(PrefKey);
+        PlayerPrefs.Save();
     }
 
 

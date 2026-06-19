@@ -9,7 +9,7 @@ using Windows.Kinect;
 namespace CapturyToolkit.Kinect
 {
 
-public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
+public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager
 {
     #region Inspector Settings
 
@@ -194,6 +194,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     void OnDestroy()
     {
         if (enableDebugLogging) Debug.Log("KinectMotionTrackingManager: OnDestroy()");
+        if (instance == this) instance = null;
         CleanupSystem();
     }
 
@@ -203,20 +204,14 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     private void SetupSingleton()
     {
+        if (instance != null && instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        instance = this;
         if (dontDestroyOnLoad)
-        {
-            if (instance != null && instance != this)
-            {
-                Destroy(gameObject);
-                return;
-            }
-            instance = this;
             DontDestroyOnLoad(gameObject);
-        }
-        else
-        {
-            instance = this;
-        }
     }
 
     private void LoadDefaultConfiguration()
@@ -472,7 +467,20 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
         if (isFirstBody && !isSystemCalibrated)
         {
-            if (TryLoadDefaultCalibration())
+            // Resolve joints before any calibration path so CalibrationHooks and LoadCalibration
+            // can both call SetCalibration on modules with valid resolvedJoints already populated.
+            foreach (var module in allModules)
+                module.PrepareForTracking();
+
+            bool externalCalibration = CalibrationHooks.OnSkeletonReadyForCalibration?.Invoke(this) ?? false;
+
+            if (externalCalibration)
+            {
+                isSystemCalibrated = true;
+                if (enableDebugLogging)
+                    Debug.Log("KinectMotionTrackingManager: External calibration provided via hook — skipping auto-calibration");
+            }
+            else if (TryLoadDefaultCalibration())
             {
                 isSystemCalibrated = true;
                 if (enableDebugLogging)

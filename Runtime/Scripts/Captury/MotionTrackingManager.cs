@@ -6,7 +6,7 @@ using Captury;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 
-public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
+public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager
 {
     [Header("Configuration")]
     [SerializeField] private MotionTrackingConfiguration config;
@@ -215,7 +215,20 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         if (enableDebugLogging) Debug.Log("MotionTrackingManager: Skeleton setup complete, building joint lookup...");
         BuildJointLookup(skeleton);
 
-        if (TryLoadDefaultCalibration())
+        // Resolve joints before any calibration path so CalibrationHooks and LoadCalibration
+        // can both call SetCalibration on modules with valid resolvedJoints already populated.
+        foreach (var module in allModules)
+            module.PrepareForTracking();
+
+        bool externalCalibration = CalibrationHooks.OnSkeletonReadyForCalibration?.Invoke(this) ?? false;
+
+        if (externalCalibration)
+        {
+            isSystemCalibrated = true;
+            if (enableDebugLogging)
+                Debug.Log("MotionTrackingManager: External calibration provided via hook — skipping auto-calibration");
+        }
+        else if (TryLoadDefaultCalibration())
         {
             isSystemCalibrated = true;
             if (enableDebugLogging)
