@@ -390,6 +390,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         jointLookup["SpineBase"] = hipsJoint;
         jointLookup["SpineShoulder"] = spine4Joint;
 
+        // BVH-compatible aliases: Captury calls glenohumeral joints "LeftArm"/"RightArm"
+        // and proximal legs "LeftUpLeg"/"RightUpLeg" — required by SkeletonPanel's BvhNames array.
+        jointLookup["LeftArm"]    = landmarkTransforms[(int)PoseLandmark.LeftShoulder];
+        jointLookup["RightArm"]   = landmarkTransforms[(int)PoseLandmark.RightShoulder];
+        jointLookup["LeftUpLeg"]  = landmarkTransforms[(int)PoseLandmark.LeftHip];
+        jointLookup["RightUpLeg"] = landmarkTransforms[(int)PoseLandmark.RightHip];
+
         if (enableDebugLogging)
             Debug.Log($"MediaPipeMotionTrackingManager: Joint lookup built with {jointLookup.Count} entries");
     }
@@ -610,6 +617,9 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     private void UpdateAllModules()
     {
+        if (!capturyInput.added)
+            InitializeCapturyInput();
+
         CapturyInputState state = new CapturyInputState();
 
         foreach (var module in allModules)

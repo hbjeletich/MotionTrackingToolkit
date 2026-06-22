@@ -67,6 +67,15 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": true
+                },
+                {
+                    "name": "IsSquatting",
+                    "type": "Button",
+                    "id": "efaba356-1545-4aa7-b18a-e897f2717c1f",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -144,6 +153,17 @@
                     "processors": "",
                     "groups": "",
                     "action": "SquatDepth",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "cbc9d992-9077-4b5b-83ee-083714126daa",
+                    "path": "<CapturyInput>/isSquatting",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "IsSquatting",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

@@ -25,7 +25,7 @@ public class TorsoModuleConfiguration : ModuleConfiguration
     public bool isSquatTracked = false;
 
     [Tooltip("Metres the hip-to-knee vertical gap must close to register as a squat")]
-    public float squatThreshold = 0.12f;
+    public float squatThreshold = 0.05f;
 
     [Header("Joint Names")]
     [Tooltip("Name of the pelvis/hips joint in your skeleton")]
