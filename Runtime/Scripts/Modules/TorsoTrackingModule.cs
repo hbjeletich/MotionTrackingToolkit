@@ -12,6 +12,7 @@ public class TorsoTrackingModule : MotionTrackingModule
         public Vector3 neutralPelvisRotation;
         public Vector3 neutralSpinePosition;
         public Vector3 neutralSpineToPelvisOffset;
+        public float neutralHipKneeDistance;
 
         public override CalibrationSnapshot Clone()
         {
@@ -21,7 +22,8 @@ public class TorsoTrackingModule : MotionTrackingModule
                 neutralPelvisPosition = neutralPelvisPosition,
                 neutralPelvisRotation = neutralPelvisRotation,
                 neutralSpinePosition = neutralSpinePosition,
-                neutralSpineToPelvisOffset = neutralSpineToPelvisOffset
+                neutralSpineToPelvisOffset = neutralSpineToPelvisOffset,
+                neutralHipKneeDistance = neutralHipKneeDistance
             };
         }
     }
@@ -34,6 +36,7 @@ public class TorsoTrackingModule : MotionTrackingModule
     private bool isShiftingLeft = false;
     private bool isShiftingRight = false;
     private bool isBentOver = false;
+    private bool isSquatting = false;
 
     // calibration access
     private TorsoModuleConfiguration TorsoConfig => GetModuleConfig() as TorsoModuleConfiguration;
@@ -42,10 +45,12 @@ public class TorsoTrackingModule : MotionTrackingModule
     // config values with fallbacks
     public bool IsShiftTracked => TorsoConfig?.isShiftTracked ?? false;
     public bool IsBendTracked => TorsoConfig?.isBendTracked ?? false;
+    public bool IsSquatTracked => TorsoConfig?.isSquatTracked ?? false;
     public float WeightShiftThreshold => TorsoConfig?.weightShiftThreshold ?? 0.15f;
     public float NeutralZoneWidth => TorsoConfig?.neutralZoneWidth ?? 0.05f;
     public float BentOverAngleThreshold => TorsoConfig?.bentOverAngleThreshold ?? 30f;
     public float WholeBodyMovementThreshold => TorsoConfig?.wholeBodyMovementThreshold ?? 3f;
+    public float SquatThreshold => TorsoConfig?.squatThreshold ?? 0.12f;
 
     #endregion
 
@@ -70,17 +75,50 @@ public class TorsoTrackingModule : MotionTrackingModule
             return null;
         }
 
+        float hipKneeDist = 0f;
+        if (IsSquatTracked)
+        {
+            // World-landmark path (MediaPipe/OAK-D): body-relative positions, camera-invariant.
+            var mpManager = manager as MediaPipeMotionTrackingManager;
+            if (mpManager != null && mpManager.HasWorldKeyLandmarks)
+            {
+                var wkl = mpManager.WorldKeyLandmarks;
+                float avgHipY  = (wkl[0].y + wkl[1].y) * 0.5f;
+                float avgKneeY = (wkl[2].y + wkl[3].y) * 0.5f;
+                hipKneeDist = avgHipY - avgKneeY;
+                if (DebugMode) Debug.Log($"[SQUAT CAL] World-landmark path — LHip={wkl[0].y:F3} RHip={wkl[1].y:F3} LKnee={wkl[2].y:F3} RKnee={wkl[3].y:F3} → avgHipY={avgHipY:F3} avgKneeY={avgKneeY:F3} hipKneeDist={hipKneeDist:F3}m");
+            }
+            else
+            {
+                // Joint-based path (Captury/Kinect): world-space Y, stable regardless of position.
+                Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
+                Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
+                if (leftKnee != null && rightKnee != null)
+                {
+                    float avgKneeY = (leftKnee.position.y + rightKnee.position.y) * 0.5f;
+                    hipKneeDist = pelvis.position.y - avgKneeY;
+                    if (DebugMode) Debug.Log($"[SQUAT CAL] Joint path — pelvisY={pelvis.position.y:F3} avgKneeY={avgKneeY:F3} hipKneeDist={hipKneeDist:F3}m");
+                }
+                else
+                {
+                    Debug.LogWarning($"[SQUAT CAL] No world landmarks AND no knee joints — squat tracking will not work. mpManager={mpManager != null}, HasWorldKeyLandmarks={mpManager?.HasWorldKeyLandmarks}");
+                }
+            }
+        }
+
         var snapshot = new TorsoCalibrationSnapshot
         {
             neutralPelvisPosition = pelvis.position,
             neutralPelvisRotation = pelvis.eulerAngles,
             neutralSpinePosition = spine.position,
-            neutralSpineToPelvisOffset = spine.position - pelvis.position
+            neutralSpineToPelvisOffset = spine.position - pelvis.position,
+            neutralHipKneeDistance = hipKneeDist
         };
 
         Debug.Log($"TorsoTrackingModule: Captured calibration — " +
                  $"Pelvis: {snapshot.neutralPelvisPosition:F3}, Spine: {snapshot.neutralSpinePosition:F3}, " +
-                 $"Offset: {snapshot.neutralSpineToPelvisOffset:F3}");
+                 $"Offset: {snapshot.neutralSpineToPelvisOffset:F3}" +
+                 (IsSquatTracked ? $", HipKneeDist: {hipKneeDist:F3}m" : ""));
 
         return snapshot;
     }
@@ -91,6 +129,7 @@ public class TorsoTrackingModule : MotionTrackingModule
         isShiftingLeft = false;
         isShiftingRight = false;
         isBentOver = false;
+        isSquatting = false;
     }
 
     public override string SerializeCalibration()
@@ -160,6 +199,9 @@ public class TorsoTrackingModule : MotionTrackingModule
 
         if (IsBendTracked)
             UpdateBentOver(ref state, relativeRotation);
+
+        if (IsSquatTracked)
+            UpdateSquat(ref state, pelvis);
     }
 
     private void UpdateWeightShiftRelative(ref CapturyInputState state, Vector3 pelvisMovement, Vector3 spineMovement, Vector3 relativeMovement)
@@ -241,6 +283,66 @@ public class TorsoTrackingModule : MotionTrackingModule
             if (DebugMode)
                 Debug.Log($"TorsoTrackingModule: Posture changed to {(isBentOver ? "BENT OVER" : "UPRIGHT")}");
         }
+    }
+
+    private void UpdateSquat(ref CapturyInputState state, Transform pelvis)
+    {
+        var cal = TorsoCalibration;
+
+        bool log = DebugMode && Time.frameCount % 60 == 0;
+
+        // World-landmark path (MediaPipe/OAK-D): body-relative positions, camera-invariant.
+        // Uses the same hipY - kneeY formula as the joint path; no special-casing needed.
+        var mpManager = manager as MediaPipeMotionTrackingManager;
+        if (mpManager != null && mpManager.HasWorldKeyLandmarks)
+        {
+            var wkl = mpManager.WorldKeyLandmarks;
+            float avgHipY  = (wkl[0].y + wkl[1].y) * 0.5f;
+            float avgKneeY = (wkl[2].y + wkl[3].y) * 0.5f;
+            float dist  = avgHipY - avgKneeY;
+            float depth = Mathf.Max(0f, cal.neutralHipKneeDistance - dist);
+            if (log) Debug.Log($"[SQUAT] World path — neutral={cal.neutralHipKneeDistance:F3} current={dist:F3} depth={depth:F3} | hipY={avgHipY:F3} kneeY={avgKneeY:F3}");
+            ApplySquatState(ref state, depth);
+            return;
+        }
+
+        if (log) Debug.Log($"[SQUAT] No world landmarks — falling back to joints. mpManager={mpManager != null} HasWorldKeyLandmarks={mpManager?.HasWorldKeyLandmarks}");
+
+        // Joint-based path (Captury/Kinect): world-space Y is stable regardless of position.
+        Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
+        Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
+
+        if (leftKnee == null || rightKnee == null)
+        {
+            if (log) Debug.Log($"[SQUAT] Joint path — knee joints null: left={leftKnee != null} right={rightKnee != null}");
+            state.squatDepth = 0f;
+            state.isSquatting = 0f;
+            return;
+        }
+
+        float jointKneeY = (leftKnee.position.y + rightKnee.position.y) * 0.5f;
+        float currentDist = pelvis.position.y - jointKneeY;
+        float jointDepth = Mathf.Max(0f, cal.neutralHipKneeDistance - currentDist);
+        if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} depth={jointDepth:F3}");
+        ApplySquatState(ref state, jointDepth);
+    }
+
+    private void ApplySquatState(ref CapturyInputState state, float depth)
+    {
+        state.squatDepth = depth;
+
+        bool currentlySquatting = depth > SquatThreshold;
+        state.isSquatting = currentlySquatting ? 1f : 0f;
+
+        if (currentlySquatting != isSquatting)
+        {
+            isSquatting = currentlySquatting;
+            if (DebugMode)
+                Debug.Log($"TorsoTrackingModule: Squat {(isSquatting ? "START" : "END")} — depth={depth:F3}m, threshold={SquatThreshold:F3}m");
+        }
+
+        if (DebugMode && Time.frameCount % 60 == 0)
+            Debug.Log($"TorsoTrackingModule: SquatDepth={depth:F3}m");
     }
 
     #endregion

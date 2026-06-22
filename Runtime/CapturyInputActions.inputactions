@@ -58,6 +58,15 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": true
+                },
+                {
+                    "name": "SquatDepth",
+                    "type": "Value",
+                    "id": "cf68d9e8-7ab0-4d9e-a947-472fd01d8e12",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
                 }
             ],
             "bindings": [
@@ -124,6 +133,17 @@
                     "processors": "",
                     "groups": "",
                     "action": "PelvisPosition",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "2f95bdbb-c731-42a9-8cce-eac7bfd76b57",
+                    "path": "<CapturyInput>/squatDepth",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "SquatDepth",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

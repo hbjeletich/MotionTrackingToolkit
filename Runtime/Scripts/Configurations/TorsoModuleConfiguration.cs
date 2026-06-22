@@ -21,6 +21,12 @@ public class TorsoModuleConfiguration : ModuleConfiguration
     [Tooltip("Degrees of forward bend to trigger bent over detection")]
     public float bentOverAngleThreshold = 30f;
 
+    [Header("Squat Detection")]
+    public bool isSquatTracked = false;
+
+    [Tooltip("Metres the hip-to-knee vertical gap must close to register as a squat")]
+    public float squatThreshold = 0.12f;
+
     [Header("Joint Names")]
     [Tooltip("Name of the pelvis/hips joint in your skeleton")]
     public string pelvisJointName = "Hips";
@@ -28,8 +34,16 @@ public class TorsoModuleConfiguration : ModuleConfiguration
     [Tooltip("Name of the spine joint used for torso tracking")]
     public string spineJointName = "Spine4";
 
+    [Tooltip("Name of the left knee joint (only used when isSquatTracked is true)")]
+    public string leftKneeJointName = "LeftLeg";
+
+    [Tooltip("Name of the right knee joint (only used when isSquatTracked is true)")]
+    public string rightKneeJointName = "RightLeg";
+
     public override string[] GetRequiredJointNames()
     {
+        if (isSquatTracked)
+            return new string[] { pelvisJointName, spineJointName, leftKneeJointName, rightKneeJointName };
         return new string[] { pelvisJointName, spineJointName };
     }
 
@@ -47,16 +61,22 @@ public class TorsoModuleConfiguration : ModuleConfiguration
             case MotionSource.Captury:
                 pelvisJointName = "Hips";
                 spineJointName = "Spine4";
+                leftKneeJointName = "LeftLeg";
+                rightKneeJointName = "RightLeg";
                 break;
 
             case MotionSource.Kinect:
                 pelvisJointName = "SpineBase";
                 spineJointName = "SpineShoulder";
+                leftKneeJointName = "KneeLeft";
+                rightKneeJointName = "KneeRight";
                 break;
 
             case MotionSource.MediaPipe:
                 pelvisJointName = "Hips";
                 spineJointName = "Spine4";
+                leftKneeJointName = "LeftLeg";
+                rightKneeJointName = "RightLeg";
                 break;
         }
     }

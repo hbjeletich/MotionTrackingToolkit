@@ -80,6 +80,15 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": true
+                },
+                {
+                    ""name"": ""SquatDepth"",
+                    ""type"": ""Value"",
+                    ""id"": ""cf68d9e8-7ab0-4d9e-a947-472fd01d8e12"",
+                    ""expectedControlType"": ""Axis"",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": true
                 }
             ],
             ""bindings"": [
@@ -146,6 +155,17 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""groups"": """",
                     ""action"": ""PelvisPosition"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""2f95bdbb-c731-42a9-8cce-eac7bfd76b57"",
+                    ""path"": ""<CapturyInput>/squatDepth"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""SquatDepth"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
@@ -894,6 +914,7 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
         m_Torso_WeightShiftRight = m_Torso.FindAction("WeightShiftRight", throwIfNotFound: true);
         m_Torso_WeightShiftX = m_Torso.FindAction("WeightShiftX", throwIfNotFound: true);
         m_Torso_PelvisPosition = m_Torso.FindAction("PelvisPosition", throwIfNotFound: true);
+        m_Torso_SquatDepth = m_Torso.FindAction("SquatDepth", throwIfNotFound: true);
         // Foot
         m_Foot = asset.FindActionMap("Foot", throwIfNotFound: true);
         m_Foot_FootRaised = m_Foot.FindAction("FootRaised", throwIfNotFound: true);
@@ -1004,6 +1025,7 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
     private readonly InputAction m_Torso_WeightShiftRight;
     private readonly InputAction m_Torso_WeightShiftX;
     private readonly InputAction m_Torso_PelvisPosition;
+    private readonly InputAction m_Torso_SquatDepth;
     public struct TorsoActions
     {
         private @CapturyInputActions m_Wrapper;
@@ -1014,6 +1036,7 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
         public InputAction @WeightShiftRight => m_Wrapper.m_Torso_WeightShiftRight;
         public InputAction @WeightShiftX => m_Wrapper.m_Torso_WeightShiftX;
         public InputAction @PelvisPosition => m_Wrapper.m_Torso_PelvisPosition;
+        public InputAction @SquatDepth => m_Wrapper.m_Torso_SquatDepth;
         public InputActionMap Get() { return m_Wrapper.m_Torso; }
         public void Enable() { Get().Enable(); }
         public void Disable() { Get().Disable(); }
@@ -1041,6 +1064,9 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
             @PelvisPosition.started += instance.OnPelvisPosition;
             @PelvisPosition.performed += instance.OnPelvisPosition;
             @PelvisPosition.canceled += instance.OnPelvisPosition;
+            @SquatDepth.started += instance.OnSquatDepth;
+            @SquatDepth.performed += instance.OnSquatDepth;
+            @SquatDepth.canceled += instance.OnSquatDepth;
         }
 
         private void UnregisterCallbacks(ITorsoActions instance)
@@ -1063,6 +1089,9 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
             @PelvisPosition.started -= instance.OnPelvisPosition;
             @PelvisPosition.performed -= instance.OnPelvisPosition;
             @PelvisPosition.canceled -= instance.OnPelvisPosition;
+            @SquatDepth.started -= instance.OnSquatDepth;
+            @SquatDepth.performed -= instance.OnSquatDepth;
+            @SquatDepth.canceled -= instance.OnSquatDepth;
         }
 
         public void RemoveCallbacks(ITorsoActions instance)
@@ -1520,6 +1549,7 @@ public partial class @CapturyInputActions: IInputActionCollection2, IDisposable
         void OnWeightShiftRight(InputAction.CallbackContext context);
         void OnWeightShiftX(InputAction.CallbackContext context);
         void OnPelvisPosition(InputAction.CallbackContext context);
+        void OnSquatDepth(InputAction.CallbackContext context);
     }
     public interface IFootActions
     {

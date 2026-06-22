@@ -34,6 +34,12 @@ public struct CapturyInputState : IInputStateTypeInfo
     [InputControl(layout = "Vector3")]
     public Vector3 pelvisPosition;
 
+    [InputControl(layout = "Axis")]
+    public float squatDepth;
+
+    [InputControl(layout = "Button")]
+    public float isSquatting;
+
     // FOOT TRACKING CONTROLS
     [InputControl(layout = "Button")]
     public float footRaised;
@@ -172,6 +178,12 @@ public class CapturyInput : InputDevice
     [InputControl(layout = "Vector3", displayName = "Pelvis Position")]
     public Vector3Control pelvisPosition { get; private set; }
 
+    [InputControl(layout = "Axis", displayName = "Squat Depth")]
+    public AxisControl squatDepth { get; private set; }
+
+    [InputControl(layout = "Button", displayName = "Is Squatting")]
+    public ButtonControl isSquatting { get; private set; }
+
     // FOOT CONTROLS
     [InputControl(layout = "Button", displayName = "Foot Raised")]
     public ButtonControl footRaised { get; private set; }
@@ -298,6 +310,8 @@ public class CapturyInput : InputDevice
         weightShiftRight = GetChildControl<ButtonControl>("weightShiftRight");
         weightShiftX = GetChildControl<AxisControl>("weightShiftX");
         pelvisPosition = GetChildControl<Vector3Control>("pelvisPosition");
+        squatDepth = GetChildControl<AxisControl>("squatDepth");
+        isSquatting = GetChildControl<ButtonControl>("isSquatting");
 
         // foot controls
         footRaised = GetChildControl<ButtonControl>("footRaised");
@@ -347,7 +361,7 @@ public class CapturyInput : InputDevice
         balanceLost = GetChildControl<ButtonControl>("balanceLost");
         balanceRegained = GetChildControl<ButtonControl>("balanceRegained");
 
-        Debug.Log("CapturyInput setup complete - Torso, Foot, Walk, Gait, Arm/Hand, Head, and Balance tracking controls ready");
+        Debug.Log("CapturyInput setup complete - Torso (incl. Squat), Foot, Walk, Gait, Arm/Hand, Head, and Balance tracking controls ready");
     }
 
     public static void Register()

@@ -142,6 +142,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private Vector3 _latestAbsoluteHip = Vector3.zero;
     private bool _hasAbsoluteHip = false;
 
+    // world key landmarks: LHip[0], RHip[1], LKnee[2], RKnee[3] — from pose_world_landmarks
+    private readonly Vector3[] _worldKeyLandmarks = new Vector3[4];
+    private bool _hasWorldKeyLandmarks = false;
+
     // room calibration
     private RoomCalibration activeRoomCalibration = null;
     private Coroutine activeRoomCalibrationCoroutine = null;
@@ -194,6 +198,14 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool HasAbsoluteHip => _hasAbsoluteHip;
     public bool HasRoomCalibration => activeRoomCalibration != null;
 
+    /// <summary>
+    /// World key landmarks from pose_world_landmarks: [0]=LHip, [1]=RHip, [2]=LKnee, [3]=RKnee.
+    /// Body-relative, Y-up, metres — camera-position-invariant.
+    /// Only valid when HasWorldKeyLandmarks is true.
+    /// </summary>
+    public bool HasWorldKeyLandmarks => _hasWorldKeyLandmarks;
+    public Vector3[] WorldKeyLandmarks => _worldKeyLandmarks;
+
     #endregion
 
     #region Unity Lifecycle
@@ -241,6 +253,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
         _hasAbsoluteHip = (latestPacketMode == 1);
         _latestAbsoluteHip = latestHipAnchor;
+        _hasWorldKeyLandmarks = mediaPipeInput.TryGetWorldKeyLandmarks(_worldKeyLandmarks);
 
         if (_capturingBoundary && _hasAbsoluteHip && headJoint != null)
         {

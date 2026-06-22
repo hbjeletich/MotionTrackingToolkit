@@ -186,6 +186,8 @@ public class MediaPipeSkeletonVisualizer : MonoBehaviour
 
     #region Update
 
+    private static bool IsValidPosition(Vector3 p) => p.sqrMagnitude > 0.0001f;
+
     private void UpdateJointPositions()
     {
         if (!showJoints) return;
@@ -194,7 +196,9 @@ public class MediaPipeSkeletonVisualizer : MonoBehaviour
         for (int i = 0; i < 33; i++)
         {
             Transform lm = trackingManager.GetLandmarkTransform(i);
-            if (lm != null)
+            bool valid = lm != null && IsValidPosition(lm.position);
+            jointSpheres[i].SetActive(valid);
+            if (valid)
                 jointSpheres[i].transform.position = lm.position;
         }
 
@@ -222,16 +226,13 @@ public class MediaPipeSkeletonVisualizer : MonoBehaviour
             int b = BoneConnections[i][1];
             Transform ta = trackingManager.GetLandmarkTransform(a);
             Transform tb = trackingManager.GetLandmarkTransform(b);
-
-            if (ta != null && tb != null)
+            bool valid = ta != null && tb != null
+                      && IsValidPosition(ta.position) && IsValidPosition(tb.position);
+            boneLines[i].enabled = valid;
+            if (valid)
             {
                 boneLines[i].SetPosition(0, ta.position);
                 boneLines[i].SetPosition(1, tb.position);
-                boneLines[i].enabled = true;
-            }
-            else
-            {
-                boneLines[i].enabled = false;
             }
         }
 
@@ -242,16 +243,13 @@ public class MediaPipeSkeletonVisualizer : MonoBehaviour
             int b = SpineConnections[i][1];
             Transform ta = trackingManager.GetLandmarkTransform(a);
             Transform tb = trackingManager.GetLandmarkTransform(b);
-
-            if (ta != null && tb != null)
+            bool valid = ta != null && tb != null
+                      && IsValidPosition(ta.position) && IsValidPosition(tb.position);
+            spineLines[i].enabled = valid;
+            if (valid)
             {
                 spineLines[i].SetPosition(0, ta.position);
                 spineLines[i].SetPosition(1, tb.position);
-                spineLines[i].enabled = true;
-            }
-            else
-            {
-                spineLines[i].enabled = false;
             }
         }
     }
