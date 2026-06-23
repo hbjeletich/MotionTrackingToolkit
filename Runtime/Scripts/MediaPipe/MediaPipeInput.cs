@@ -37,6 +37,7 @@ public class MediaPipeInput : MonoBehaviour
     private readonly Vector3[] worldKeyLandmarks = new Vector3[4];
     private bool hasWorldKeyLandmarks = false;
     private bool hasData = false;
+    private long _lastPacketTicks = 0; // written from listener thread via Interlocked
 
     // thread safety
     private readonly object dataLock = new object();
@@ -49,6 +50,8 @@ public class MediaPipeInput : MonoBehaviour
     // public accessors (main thread only — copies data under lock)
     public bool HasData => hasData;
     public float LatestTimestamp => latestTimestamp;
+    public float SecondsSinceLastPacket => _lastPacketTicks == 0 ? float.MaxValue
+        : (float)((DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastPacketTicks)) / (double)TimeSpan.TicksPerSecond);
 
     /// <summary>
     /// Copy the 4 world key landmarks (LHip, RHip, LKnee, RKnee) from pose_world_landmarks.
@@ -209,6 +212,8 @@ public class MediaPipeInput : MonoBehaviour
         // expected remaining size: count * 4 floats * 4 bytes
         int expectedSize = offset + (count * 4 * 4);
         if (data.Length < expectedSize) return;
+
+        Interlocked.Exchange(ref _lastPacketTicks, DateTime.UtcNow.Ticks);
 
         lock (dataLock)
         {

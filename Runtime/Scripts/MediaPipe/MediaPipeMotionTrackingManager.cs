@@ -159,6 +159,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private bool isSystemCalibrated = false;
     private Coroutine activeCalibrationCoroutine = null;
     private bool hasReceivedLandmarks = false;
+    private bool _isBodyTracked = false;
+    private const float PacketTimeoutSeconds = 0.5f;
 
     // singleton
     private static MediaPipeMotionTrackingManager instance;
@@ -192,6 +194,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool IsSystemCalibrated => isSystemCalibrated;
     public bool IsCalibrating => activeCalibrationCoroutine != null;
     public bool HasReceivedLandmarks => hasReceivedLandmarks;
+    public bool IsBodyTracked => _isBodyTracked;
     public int ActiveModuleCount => allModules.Count;
     public string CurrentConfigurationName => config?.configurationName ?? "None";
     public Vector3 LatestAbsoluteHip => _latestAbsoluteHip;
@@ -245,7 +248,21 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     void Update()
     {
-        if (mediaPipeInput == null || !mediaPipeInput.HasData) return;
+        if (mediaPipeInput == null) return;
+
+        // if no packets for too long, body lost
+        if (mediaPipeInput.HasData && mediaPipeInput.SecondsSinceLastPacket > PacketTimeoutSeconds)
+        {
+            if (_isBodyTracked)
+            {
+                _isBodyTracked = false;
+                if (enableDebugLogging)
+                    Debug.Log("MediaPipeMotionTrackingManager: Body lost — no packets received");
+            }
+            return;
+        }
+
+        if (!mediaPipeInput.HasData) return;
 
         // read latest landmarks from the input receiver
         if (!mediaPipeInput.TryGetFrame(positionBuffer, confidenceBuffer, out latestPacketMode, out latestHipAnchor))
@@ -272,6 +289,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         if (!hasReceivedLandmarks)
         {
             hasReceivedLandmarks = true;
+            _isBodyTracked = true;
             if (enableDebugLogging)
                 Debug.Log("MediaPipeMotionTrackingManager: First landmarks received, calibrating...");
 
@@ -298,6 +316,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             {
                 activeCalibrationCoroutine = StartCoroutine(CalibrateSystem());
             }
+        }
+        else if (!_isBodyTracked)
+        {
+            // body returned after a timeout gap
+            _isBodyTracked = true;
+            if (enableDebugLogging)
+                Debug.Log("MediaPipeMotionTrackingManager: Body found — tracking resumed");
         }
 
         // drive modules
@@ -785,6 +810,21 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     {
         if (index >= 0 && index < 33) return confidenceBuffer[index];
         return 0f;
+    }
+
+    // Shoulders (11,12), hips (23,24), knees (25,26) — structural joints that must be visible
+    private static readonly int[] KeyLandmarkIndices = { 11, 12, 23, 24, 25, 26 };
+    private const float MinLandmarkConfidence = 0.5f;
+    private const int MinReliableKeyLandmarks = 5;
+
+    public bool IsTrackingReliable()
+    {
+        if (!_isBodyTracked) return false;
+        int reliable = 0;
+        foreach (int idx in KeyLandmarkIndices)
+            if (GetLandmarkConfidence(idx) >= MinLandmarkConfidence)
+                reliable++;
+        return reliable >= MinReliableKeyLandmarks;
     }
 
     /// <summary>

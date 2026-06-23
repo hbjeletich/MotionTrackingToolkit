@@ -52,6 +52,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     // Singleton — tracks the currently live (potentially DDOL) orchestrator.
     private static MotionTrackingOrchestrator _instance;
+    public static MotionTrackingOrchestrator Instance => _instance;
 
     #region IMotionTrackingManager
 
@@ -82,6 +83,22 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
     public bool HasRoomBounds => ActiveManager?.HasRoomBounds ?? false;
     public Vector3[] GetRoomBoundary() => ActiveManager?.GetRoomBoundary() ?? System.Array.Empty<Vector3>();
     public float RoomMinTrackingDistance => ActiveManager?.RoomMinTrackingDistance ?? 0f;
+
+    public bool IsTracked => activeSource switch
+    {
+        MotionSource.Kinect    => kinectManager    != null && kinectManager.IsBodyTracked,
+        MotionSource.MediaPipe => mediaPipeManager != null && mediaPipeManager.HasReceivedLandmarks,
+        MotionSource.Captury   => capturyManager   != null && capturyManager.IsSystemCalibrated,
+        _                      => false
+    };
+
+    public bool IsTrackingReliable() => activeSource switch
+    {
+        MotionSource.Kinect    => kinectManager    != null && kinectManager.IsCurrentTrackingReliable(),
+        MotionSource.MediaPipe => mediaPipeManager != null && mediaPipeManager.IsTrackingReliable(),
+        MotionSource.Captury   => capturyManager   != null && capturyManager.IsSystemCalibrated,
+        _                      => false
+    };
 
     #endregion
 

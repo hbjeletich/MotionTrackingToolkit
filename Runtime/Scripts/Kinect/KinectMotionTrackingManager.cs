@@ -110,6 +110,9 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
     public bool IsBodyTracked => isBodyTracked;
     public bool IsSystemCalibrated => isSystemCalibrated;
     public bool IsCalibrating => activeCalibrationCoroutine != null;
+
+    public event System.Action<ulong> BodyFound;
+    public event System.Action BodyLost;
     public int ActiveModuleCount => allModules.Count;
     public string CurrentConfigurationName => config?.configurationName ?? "None";
     public ulong CurrentTrackedBodyId => currentTrackedBodyId;
@@ -480,6 +483,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         bool isFirstBody = !isBodyTracked;
         currentTrackedBodyId = bodyId;
         isBodyTracked = true;
+        BodyFound?.Invoke(bodyId);
 
         if (enableDebugLogging)
             Debug.Log($"KinectMotionTrackingManager: Body found — ID: {bodyId}");
@@ -529,6 +533,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         isBodyTracked = false;
         currentTrackedBodyId = 0;
         _currentBody = null;
+        BodyLost?.Invoke();
     }
 
     #endregion
@@ -986,7 +991,7 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
         }
     }
 
-    private bool IsCurrentTrackingReliable()
+    public bool IsCurrentTrackingReliable()
     {
         if (_currentBody == null) return false;
         int count = 0;
