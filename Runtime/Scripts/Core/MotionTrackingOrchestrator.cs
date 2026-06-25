@@ -100,17 +100,17 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
         _                      => false
     };
 
-    #endregion
-
-    #region Private
-
-    private IMotionTrackingManager ActiveManager => activeSource switch
+    public IMotionTrackingManager ActiveManager => activeSource switch
     {
         MotionSource.Captury   => capturyManager,
         MotionSource.Kinect    => kinectManager,
         MotionSource.MediaPipe => mediaPipeManager,
         _                      => null
     };
+
+    #endregion
+
+    #region Private
 
     private void OnValidate() => SyncActiveState();
 
@@ -163,20 +163,12 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Set a global source that overrides every Orchestrator's inspector value on startup.
-    /// Persists across play sessions via PlayerPrefs until ClearGlobalSource is called.
-    /// </summary>
     public static void SetGlobalSource(MotionSource source)
     {
         GlobalSourceOverride = source;
         PlayerPrefs.SetInt(PrefKey, (int)source);
         PlayerPrefs.Save();
     }
-
-    /// <summary>
-    /// Remove the global override. Orchestrators revert to their inspector activeSource values.
-    /// </summary>
     public static void ClearGlobalSource()
     {
         GlobalSourceOverride = null;

@@ -47,17 +47,15 @@ public class MediaPipeInput : MonoBehaviour
     private Thread listenerThread;
     private volatile bool isListening = false;
 
+    private static MediaPipeInput _instance;
+
     // public accessors (main thread only — copies data under lock)
     public bool HasData => hasData;
     public float LatestTimestamp => latestTimestamp;
     public float SecondsSinceLastPacket => _lastPacketTicks == 0 ? float.MaxValue
         : (float)((DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastPacketTicks)) / (double)TimeSpan.TicksPerSecond);
 
-    /// <summary>
-    /// Copy the 4 world key landmarks (LHip, RHip, LKnee, RKnee) from pose_world_landmarks.
-    /// Returns false if the sender didn't include them (falls back to joint-based squat).
-    /// dest must have length >= 4.
-    /// </summary>
+
     public bool TryGetWorldKeyLandmarks(Vector3[] dest)
     {
         lock (dataLock)
@@ -68,10 +66,6 @@ public class MediaPipeInput : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Copy the latest landmark positions into the provided array.
-    /// Returns false if no data has been received yet.
-    /// </summary>
     public bool TryGetLandmarks(Vector3[] positions, float[] confidence)
     {
         if (!hasData) return false;
@@ -86,12 +80,6 @@ public class MediaPipeInput : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// Copy the latest frame — landmarks, mode, and hip anchor — in a single lock.
-    /// Returns false if no data has been received yet.
-    /// mode 0 = single-cam body-relative; mode 1 = triangulated absolute room frame.
-    /// hipAnchor is zero when mode == 0.
-    /// </summary>
     public bool TryGetFrame(Vector3[] positions, float[] confidence, out int mode, out Vector3 hipAnchor)
     {
         if (!hasData)
@@ -115,11 +103,16 @@ public class MediaPipeInput : MonoBehaviour
 
     void OnEnable()
     {
+        if (_instance != null && _instance != this)
+            return; // DDOL instance already holds the port
+        _instance = this;
         StartListening();
     }
 
     void OnDisable()
     {
+        if (_instance != this) return;
+        _instance = null;
         StopListening();
     }
 
@@ -254,6 +247,8 @@ public class MediaPipeInput : MonoBehaviour
 
     void OnDestroy()
     {
+        if (_instance != this) return;
+        _instance = null;
         StopListening();
     }
 }
