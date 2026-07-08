@@ -326,7 +326,7 @@ public class TorsoTrackingModule : MotionTrackingModule
         if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} depth={jointDepth:F3}");
         ApplySquatState(ref state, jointDepth);
  
-        Debug.Log($"TorsoTrackingModule: PelvisY={pelvis.position.y:F3} KneeY={jointKneeY:F3} HipKneeDist={currentDist:F3} SquatDepth={jointDepth:F3}");
+        //Debug.Log($"TorsoTrackingModule: PelvisY={pelvis.position.y:F3} KneeY={jointKneeY:F3} HipKneeDist={currentDist:F3} SquatDepth={jointDepth:F3}");
     }
 
     private void ApplySquatState(ref CapturyInputState state, float depth)

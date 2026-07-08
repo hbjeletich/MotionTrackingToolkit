@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using CapturyToolkit.Kinect;
 
@@ -26,7 +27,7 @@ using CapturyToolkit.Kinect;
 /// </summary>
 
 [DisallowMultipleComponent]
-public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
+public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager, IRoomFrameSource, ITrackableRegionProvider
 {
     [Header("Source")]
     [SerializeField] private MotionSource activeSource = MotionSource.Captury;
@@ -110,6 +111,34 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
 
     #endregion
 
+    #region IRoomFrameSource
+
+    public event Action<RoomFrame> OnFrameCaptured;
+
+    private Action<RoomFrame> _frameCapturedRelay;
+
+    public bool HasRoomFrame => (ActiveManager as IRoomFrameSource)?.HasRoomFrame ?? false;
+
+    public RoomFrame CurrentFrame => (ActiveManager as IRoomFrameSource)?.CurrentFrame;
+
+    public void StartFrameCapture(FrameCapturePolicy policy) =>
+        (ActiveManager as IRoomFrameSource)?.StartFrameCapture(policy);
+
+    #endregion
+
+    #region ITrackableRegionProvider
+
+    public bool HasTrackableRegion =>
+        (ActiveManager as ITrackableRegionProvider)?.HasTrackableRegion ?? false;
+
+    public TrackableRegionSource RegionSource =>
+        (ActiveManager as ITrackableRegionProvider)?.RegionSource ?? TrackableRegionSource.None;
+
+    public Vector2[] GetTrackableRegion() =>
+        (ActiveManager as ITrackableRegionProvider)?.GetTrackableRegion();
+
+    #endregion
+
     #region Private
 
     private void OnValidate() => SyncActiveState();
@@ -154,10 +183,16 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager
         if (ActiveManager == null) Debug.LogError("[MotionTrackingOrchestrator] No active manager found.");
         if (dontDestroyOnLoad) DontDestroyOnLoad(gameObject);
         SyncActiveState();
+
+        _frameCapturedRelay = frame => OnFrameCaptured?.Invoke(frame);
+        if (ActiveManager is IRoomFrameSource src)
+            src.OnFrameCaptured += _frameCapturedRelay;
     }
 
     private void OnDestroy()
     {
+        if (_frameCapturedRelay != null && ActiveManager is IRoomFrameSource src)
+            src.OnFrameCaptured -= _frameCapturedRelay;
         if (_instance == this) _instance = null;
     }
 

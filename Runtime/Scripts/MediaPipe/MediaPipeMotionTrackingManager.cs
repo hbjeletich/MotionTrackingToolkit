@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -19,7 +20,7 @@ using UnityEngine.InputSystem.LowLevel;
 ///   GameObject with MediaPipeInput + MediaPipeMotionTrackingManager
 ///   Run mediapipe_sender.py alongside Unity
 /// </summary>
-public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable
+public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource, ITrackableRegionProvider
 {
     #region Configuration
 
@@ -149,6 +150,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     // room calibration
     private RoomCalibration activeRoomCalibration = null;
     private Coroutine activeRoomCalibrationCoroutine = null;
+    private RoomBoundary _roomBoundary = null;
 
 
     // state
@@ -198,6 +200,88 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool HasRoomCalibration => activeRoomCalibration != null;
     public bool HasWorldKeyLandmarks => _hasWorldKeyLandmarks;
     public Vector3[] WorldKeyLandmarks => _worldKeyLandmarks;
+    public RoomBoundary ActiveRoomBoundary => _roomBoundary;
+    public string DeviceSerial => mediaPipeInput?.DeviceSerial ?? "";
+
+    #endregion
+
+    #region IRoomFrameSource
+
+    public event Action<RoomFrame> OnFrameCaptured;
+
+    public bool HasRoomFrame => activeRoomCalibration != null;
+
+    public RoomFrame CurrentFrame
+    {
+        get
+        {
+            if (activeRoomCalibration == null) return null;
+            return new RoomFrame
+            {
+                originOffset       = activeRoomCalibration.originOffset,
+                yawDegrees         = activeRoomCalibration.yawDegrees,
+                floorNormalY       = 1f,
+                floorPlaneDistance = -activeRoomCalibration.floorHeight,
+                scale              = activeRoomCalibration.scale,
+            };
+        }
+    }
+
+    public void StartFrameCapture(FrameCapturePolicy policy)
+    {
+        // policy.dwellSeconds and medianSampleCount will be wired up in a later phase.
+        // For now forward to the existing flow.
+        StartRoomCalibration();
+    }
+
+    #endregion
+
+    #region ITrackableRegionProvider
+
+    public bool HasTrackableRegion =>
+        mediaPipeInput != null && mediaPipeInput.HasIntrinsics && activeRoomCalibration != null;
+
+    public TrackableRegionSource RegionSource => TrackableRegionSource.Analytical;
+
+    public Vector2[] GetTrackableRegion()
+    {
+        if (!HasTrackableRegion) return null;
+
+        Matrix4x4 K = mediaPipeInput.CameraK;
+        int w = mediaPipeInput.ImageWidth;
+        int h = mediaPipeInput.ImageHeight;
+
+        // Project onto a horizontal plane at HIP HEIGHT rather than floor level.
+        // For a near-horizontal camera at ~1m, the floor is only visible from ~3m away,
+        // giving a thin near boundary. The hip plane is much closer (~0.4m below camera),
+        // so the camera sees it from ~1m — yielding a 3-4m trackable depth instead of ~1m.
+        // originOffset.y is negative in Unity Y-up (hip below camera), so negating it gives
+        // the positive Y-down distance in OAK-D camera space.
+        float hipBelowCamera = Mathf.Max(-activeRoomCalibration.originOffset.y, 0.3f);
+        Plane trackingPlane = new Plane(new Vector3(0f, -1f, 0f), hipBelowCamera);
+
+        const float kMaxDist = 7f;
+        Vector3[] footprintCam = FrustumProjector.ProjectFloorFootprint(
+            K, Matrix4x4.identity, w, h, trackingPlane, maxDistance: kMaxDist);
+
+        if (footprintCam == null) return null;
+
+        Matrix4x4 roomToGame = activeRoomCalibration.GetRoomToGame();
+
+        var pts = new List<Vector2>(4);
+        foreach (Vector3 ptCam in footprintCam)
+        {
+            // Depth-band clipping in camera space (Z is positive-forward).
+            if (ptCam.z < 0.5f || ptCam.z > kMaxDist) continue;
+
+            // Convert OAK-D camera space → Unity world space (Y-down→Y-up, Z-fwd→Z-back).
+            Vector3 ptUnity = new Vector3(ptCam.x, -ptCam.y, -ptCam.z);
+            Vector3 ptGame  = roomToGame.MultiplyPoint3x4(ptUnity);
+            pts.Add(new Vector2(ptGame.x, ptGame.z));
+        }
+
+        return pts.Count >= 3 ? pts.ToArray() : null;
+    }
 
     #endregion
 
@@ -311,6 +395,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         {
             UpdateAllModules();
         }
+
+        // Lazily compute room boundary once both intrinsics and calibration are ready.
+        if (_roomBoundary == null && HasTrackableRegion)
+            RecomputeRoomBoundary();
     }
 
     void OnDestroy()
@@ -610,6 +698,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         };
 
         activeRoomCalibration = cal;
+        _roomBoundary = null;
+        RecomputeRoomBoundary();
 
         if (!string.IsNullOrEmpty(saveName))
             RoomCalibrationStore.Save(cal);
@@ -621,6 +711,29 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             Debug.Log($"MediaPipeMotionTrackingManager: Room calibration done — " +
                       $"origin={cal.originOffset}, yaw={cal.yawDegrees:F1}°, " +
                       $"floor={cal.floorHeight:F3}m, scale={cal.scale}");
+
+        OnFrameCaptured?.Invoke(CurrentFrame);
+    }
+
+    #endregion
+
+    #region Room Boundary
+
+    private void RecomputeRoomBoundary()
+    {
+        var trackable = GetTrackableRegion();
+        if (trackable == null) return;
+        var (rect, angleDeg) = RoomBoundary.ComputeInscribedRect(trackable);
+        _roomBoundary = new RoomBoundary
+        {
+            trackable       = trackable,
+            playRect        = rect,
+            center          = rect.center,
+            longAxisDegrees = angleDeg,
+        };
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: Room boundary — " +
+                      $"play rect {rect.width:F2}m × {rect.height:F2}m @ {angleDeg:F0}°");
     }
 
     #endregion
@@ -894,6 +1007,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
                              $"source '{cal.source}', current source is '{Source}'.");
 
         activeRoomCalibration = cal;
+        _roomBoundary = null;  // will be lazily recomputed in Update once intrinsics arrive
 
         if (enableDebugLogging)
             Debug.Log($"MediaPipeMotionTrackingManager: Loaded room calibration '{name}'");

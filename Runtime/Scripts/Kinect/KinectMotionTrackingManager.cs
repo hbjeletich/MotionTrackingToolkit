@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -9,7 +10,7 @@ using Windows.Kinect;
 namespace CapturyToolkit.Kinect
 {
 
-public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable
+public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource
 {
     #region Inspector Settings
 
@@ -821,6 +822,35 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
     #endregion
 
+    #region IRoomFrameSource
+
+    public event Action<RoomFrame> OnFrameCaptured;
+
+    public bool HasRoomFrame => activeRoomCalibration != null;
+
+    public RoomFrame CurrentFrame
+    {
+        get
+        {
+            if (activeRoomCalibration == null) return null;
+            return new RoomFrame
+            {
+                originOffset       = activeRoomCalibration.originOffset,
+                yawDegrees         = activeRoomCalibration.yawDegrees,
+                floorNormalY       = 1f,
+                floorPlaneDistance = -activeRoomCalibration.floorHeight,
+                scale              = activeRoomCalibration.scale,
+            };
+        }
+    }
+
+    public void StartFrameCapture(FrameCapturePolicy policy)
+    {
+        StartRoomCalibration();
+    }
+
+    #endregion
+
     #region Public API
 
     public void Recalibrate()
@@ -1004,6 +1034,8 @@ public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 
         if (enableDebugLogging)
             Debug.Log($"KinectMotionTrackingManager: Room calibration done — origin={origin}, yaw={yaw:F1}°, floor={floorHeight:F3}m");
+
+        OnFrameCaptured?.Invoke(CurrentFrame);
     }
 
     private float GetFloorHeightAtPosition(float x, float z)

@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using UnityEngine;
 
@@ -39,6 +40,13 @@ public class MediaPipeInput : MonoBehaviour
     private bool hasData = false;
     private long _lastPacketTicks = 0; // written from listener thread via Interlocked
 
+    // camera intrinsics (OAK-D packet type 2, 44 bytes)
+    private Matrix4x4 _cameraK;
+    private int _imageWidth;
+    private int _imageHeight;
+    private bool _hasIntrinsics = false;
+    private string _deviceSerial = "";
+
     // thread safety
     private readonly object dataLock = new object();
 
@@ -55,6 +63,11 @@ public class MediaPipeInput : MonoBehaviour
     public float SecondsSinceLastPacket => _lastPacketTicks == 0 ? float.MaxValue
         : (float)((DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastPacketTicks)) / (double)TimeSpan.TicksPerSecond);
 
+    public bool HasIntrinsics => _hasIntrinsics;
+    public int ImageWidth => _imageWidth;
+    public int ImageHeight => _imageHeight;
+    public string DeviceSerial => _deviceSerial;
+    public Matrix4x4 CameraK { get { lock (dataLock) { return _cameraK; } } }
 
     public bool TryGetWorldKeyLandmarks(Vector3[] dest)
     {
@@ -184,8 +197,45 @@ public class MediaPipeInput : MonoBehaviour
         }
     }
 
+    private void ParseIntrinsicsPacket(byte[] data)
+    {
+        // Layout: <iffffii16s>  (little-endian, 44 bytes)
+        int packetType = BitConverter.ToInt32(data, 0);
+        if (packetType != 2) return;
+
+        float fx = BitConverter.ToSingle(data,  4);
+        float fy = BitConverter.ToSingle(data,  8);
+        float cx = BitConverter.ToSingle(data, 12);
+        float cy = BitConverter.ToSingle(data, 16);
+        int   w  = BitConverter.ToInt32 (data, 20);
+        int   h  = BitConverter.ToInt32 (data, 24);
+        string serial = Encoding.ASCII.GetString(data, 28, 16).TrimEnd('\0');
+
+        var K = Matrix4x4.zero;
+        K[0, 0] = fx;
+        K[1, 1] = fy;
+        K[0, 2] = cx;
+        K[1, 2] = cy;
+        K[2, 2] = 1f;
+        K[3, 3] = 1f;
+
+        lock (dataLock)
+        {
+            _cameraK      = K;
+            _imageWidth   = w;
+            _imageHeight  = h;
+            _deviceSerial = serial;
+            _hasIntrinsics = true;
+        }
+
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeInput: Intrinsics — fx={fx:F1} fy={fy:F1} cx={cx:F1} cy={cy:F1} {w}×{h} serial={serial}");
+    }
+
     private void ParsePacket(byte[] data)
     {
+        if (data.Length == 44) { ParseIntrinsicsPacket(data); return; }
+
         // minimum size: timestamp(4) + count(4) + mode(4) + hipAnchor(12) = 24 header bytes
         if (data.Length < 24) return;
 
