@@ -6,6 +6,7 @@ public class RoomCalibration
 {
     public string calibrationName;
     public string source;       // MotionSource.ToString(), for mismatch warnings on load
+    public string sourceFingerprint;   // device serial (or similar); empty/unknown = unverifiable, always trusted
     public float timestamp;
 
     public Vector3 originOffset;   // reference-frame hip position at room-center capture

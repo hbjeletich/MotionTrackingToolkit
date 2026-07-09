@@ -143,9 +143,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private Vector3 _latestAbsoluteHip = Vector3.zero;
     private bool _hasAbsoluteHip = false;
 
-    // world key landmarks: LHip[0], RHip[1], LKnee[2], RKnee[3] — from pose_world_landmarks
-    private readonly Vector3[] _worldKeyLandmarks = new Vector3[4];
+    // world key landmarks: LHip[0], RHip[1], LKnee[2], RKnee[3], LAnkle[4], RAnkle[5]
+    private readonly Vector3[] _worldKeyLandmarks = new Vector3[6];
     private bool _hasWorldKeyLandmarks = false;
+    private bool _hasWorldKeyAnkles = false;
 
     // room calibration
     private RoomCalibration activeRoomCalibration = null;
@@ -199,6 +200,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     public bool HasAbsoluteHip => _hasAbsoluteHip;
     public bool HasRoomCalibration => activeRoomCalibration != null;
     public bool HasWorldKeyLandmarks => _hasWorldKeyLandmarks;
+    public bool HasWorldKeyAnkles => _hasWorldKeyAnkles;
     public Vector3[] WorldKeyLandmarks => _worldKeyLandmarks;
     public RoomBoundary ActiveRoomBoundary => _roomBoundary;
     public string DeviceSerial => mediaPipeInput?.DeviceSerial ?? "";
@@ -345,6 +347,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         _hasAbsoluteHip = (latestPacketMode == 1);
         _latestAbsoluteHip = latestHipAnchor;
         _hasWorldKeyLandmarks = mediaPipeInput.TryGetWorldKeyLandmarks(_worldKeyLandmarks);
+        _hasWorldKeyAnkles    = _hasWorldKeyLandmarks && mediaPipeInput.HasWorldKeyAnkles;
 
         // update skeleton transforms
         UpdateLandmarkPositions();
@@ -964,6 +967,20 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         if (activeRoomCalibration == null) return false;
         var saved = RoomCalibrationStore.Load(calibrationName);
         if (saved == null || !saved.HasBoundary) return false;
+
+        string live = DeviceSerial;
+        bool fingerprintKnown = !string.IsNullOrEmpty(live);
+        bool fingerprintMismatch = fingerprintKnown
+            && !string.IsNullOrEmpty(saved.sourceFingerprint)
+            && saved.sourceFingerprint != live;
+
+        if (fingerprintMismatch)
+        {
+            Debug.Log($"MediaPipeMotionTrackingManager: Saved boundary '{calibrationName}' was captured on a different device " +
+                      $"(saved='{saved.sourceFingerprint}', live='{live}') — ignoring, will re-walk.");
+            return false;
+        }
+
         activeRoomCalibration.boundaryPoints = saved.boundaryPoints;
         activeRoomCalibration.minTrackingDistance = saved.minTrackingDistance;
         if (enableDebugLogging)
@@ -990,6 +1007,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             return;
         }
         activeRoomCalibration.calibrationName = name;
+        activeRoomCalibration.sourceFingerprint = DeviceSerial;
         RoomCalibrationStore.Save(activeRoomCalibration);
     }
 
@@ -1005,6 +1023,19 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         if (cal.source != Source.ToString())
             Debug.LogWarning($"MediaPipeMotionTrackingManager: Room calibration '{name}' was captured on " +
                              $"source '{cal.source}', current source is '{Source}'.");
+
+        string live = DeviceSerial;
+        bool fingerprintKnown = !string.IsNullOrEmpty(live);
+        bool fingerprintMismatch = fingerprintKnown
+            && !string.IsNullOrEmpty(cal.sourceFingerprint)
+            && cal.sourceFingerprint != live;
+
+        if (fingerprintMismatch)
+        {
+            Debug.Log($"MediaPipeMotionTrackingManager: Room calibration '{name}' was captured on a different device " +
+                      $"(saved='{cal.sourceFingerprint}', live='{live}') — ignoring, will re-capture.");
+            return false;
+        }
 
         activeRoomCalibration = cal;
         _roomBoundary = null;  // will be lazily recomputed in Update once intrinsics arrive

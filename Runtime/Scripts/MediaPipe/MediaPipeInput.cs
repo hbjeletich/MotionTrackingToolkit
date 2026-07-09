@@ -35,8 +35,9 @@ public class MediaPipeInput : MonoBehaviour
     private float latestTimestamp = 0f;
     private int latestMode = 0;
     private Vector3 latestHipAnchor = Vector3.zero;
-    private readonly Vector3[] worldKeyLandmarks = new Vector3[4];
+    private readonly Vector3[] worldKeyLandmarks = new Vector3[6];
     private bool hasWorldKeyLandmarks = false;
+    private bool hasWorldKeyAnkles = false;
     private bool hasData = false;
     private long _lastPacketTicks = 0; // written from listener thread via Interlocked
 
@@ -69,12 +70,14 @@ public class MediaPipeInput : MonoBehaviour
     public string DeviceSerial => _deviceSerial;
     public Matrix4x4 CameraK { get { lock (dataLock) { return _cameraK; } } }
 
+    public bool HasWorldKeyAnkles => hasWorldKeyAnkles;
+
     public bool TryGetWorldKeyLandmarks(Vector3[] dest)
     {
         lock (dataLock)
         {
             if (!hasWorldKeyLandmarks) return false;
-            Array.Copy(worldKeyLandmarks, dest, 4);
+            Array.Copy(worldKeyLandmarks, dest, hasWorldKeyAnkles ? 6 : 4);
             return true;
         }
     }
@@ -275,14 +278,15 @@ public class MediaPipeInput : MonoBehaviour
             latestMode = mode;
             latestHipAnchor = new Vector3(hx, hy, hz);
 
-            // Optional world key landmarks appended by oak_d_mediapipe.py:
-            // LHip, RHip, LKnee, RKnee — each as xyz float32 = 48 bytes total.
-            // Older/webcam senders that omit this block fall back to joint-based squat.
+            // Optional world key landmarks: LHip, RHip, LKnee, RKnee [, LAnkle, RAnkle].
+            // Senders that omit this block fall back to joint-based squat detection.
             hasWorldKeyLandmarks = (data.Length >= expectedSize + 48);
+            hasWorldKeyAnkles    = (data.Length >= expectedSize + 72);
             if (hasWorldKeyLandmarks)
             {
-                int wOffset = expectedSize;
-                for (int i = 0; i < 4; i++)
+                int wOffset  = expectedSize;
+                int keyCount = hasWorldKeyAnkles ? 6 : 4;
+                for (int i = 0; i < keyCount; i++)
                 {
                     float wx = BitConverter.ToSingle(data, wOffset); wOffset += 4;
                     float wy = BitConverter.ToSingle(data, wOffset); wOffset += 4;

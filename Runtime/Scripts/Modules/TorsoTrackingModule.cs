@@ -13,6 +13,11 @@ public class TorsoTrackingModule : MotionTrackingModule
         public Vector3 neutralSpinePosition;
         public Vector3 neutralSpineToPelvisOffset;
         public float neutralHipKneeDistance;
+        // Neutral knee angles stored per-leg so each knee is compared to its own baseline.
+        // neutralHipKneeRatio is the average (kept for backward-compat serialization).
+        public float neutralHipKneeRatio;
+        public float neutralLeftKneeAngle;
+        public float neutralRightKneeAngle;
 
         public override CalibrationSnapshot Clone()
         {
@@ -23,7 +28,10 @@ public class TorsoTrackingModule : MotionTrackingModule
                 neutralPelvisRotation = neutralPelvisRotation,
                 neutralSpinePosition = neutralSpinePosition,
                 neutralSpineToPelvisOffset = neutralSpineToPelvisOffset,
-                neutralHipKneeDistance = neutralHipKneeDistance
+                neutralHipKneeDistance = neutralHipKneeDistance,
+                neutralHipKneeRatio = neutralHipKneeRatio,
+                neutralLeftKneeAngle = neutralLeftKneeAngle,
+                neutralRightKneeAngle = neutralRightKneeAngle,
             };
         }
     }
@@ -37,6 +45,7 @@ public class TorsoTrackingModule : MotionTrackingModule
     private bool isShiftingRight = false;
     private bool isBentOver = false;
     private bool isSquatting = false;
+    private float _smoothedSquatDepth = 0f;
 
     // calibration access
     private TorsoModuleConfiguration TorsoConfig => GetModuleConfig() as TorsoModuleConfiguration;
@@ -75,33 +84,50 @@ public class TorsoTrackingModule : MotionTrackingModule
             return null;
         }
 
-        float hipKneeDist = 0f;
+        float hipKneeDist             = 0f;
+        float hipKneeRatio            = 0f;
+        float neutralLeftKneeAngle    = 0f;
+        float neutralRightKneeAngle   = 0f;
         if (IsSquatTracked)
         {
-            // World-landmark path (MediaPipe/OAK-D): body-relative positions, camera-invariant.
             var mpManager = manager as MediaPipeMotionTrackingManager;
-            if (mpManager != null && mpManager.HasWorldKeyLandmarks)
+
+            // Priority 1: Knee angle from world landmarks — scale-invariant, works for all modes.
+            if (mpManager != null && mpManager.HasWorldKeyLandmarks && mpManager.HasWorldKeyAnkles)
             {
                 var wkl = mpManager.WorldKeyLandmarks;
-                float avgHipY  = (wkl[0].y + wkl[1].y) * 0.5f;
-                float avgKneeY = (wkl[2].y + wkl[3].y) * 0.5f;
-                hipKneeDist = avgHipY - avgKneeY;
-                if (DebugMode) Debug.Log($"[SQUAT CAL] World-landmark path — LHip={wkl[0].y:F3} RHip={wkl[1].y:F3} LKnee={wkl[2].y:F3} RKnee={wkl[3].y:F3} → avgHipY={avgHipY:F3} avgKneeY={avgKneeY:F3} hipKneeDist={hipKneeDist:F3}m");
+                // wkl[0]=LHip, wkl[1]=RHip, wkl[2]=LKnee, wkl[3]=RKnee, wkl[4]=LAnkle, wkl[5]=RAnkle
+                float lAngle = Vector3.Angle(wkl[0] - wkl[2], wkl[4] - wkl[2]);
+                float rAngle = Vector3.Angle(wkl[1] - wkl[3], wkl[5] - wkl[3]);
+                hipKneeRatio = (lAngle + rAngle) * 0.5f;
+                neutralLeftKneeAngle  = lAngle;
+                neutralRightKneeAngle = rAngle;
+                if (DebugMode) Debug.Log($"[SQUAT CAL] Knee angle — L={lAngle:F1}° R={rAngle:F1}° neutral={hipKneeRatio:F1}°");
             }
+            // Priority 2: Joint path fallback (Captury/Kinect or no MediaPipe data).
             else
             {
-                // Joint-based path (Captury/Kinect): world-space Y, stable regardless of position.
                 Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
                 Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
                 if (leftKnee != null && rightKnee != null)
                 {
-                    float avgKneeY = (leftKnee.position.y + rightKnee.position.y) * 0.5f;
-                    hipKneeDist = pelvis.position.y - avgKneeY;
-                    if (DebugMode) Debug.Log($"[SQUAT CAL] Joint path — pelvisY={pelvis.position.y:F3} avgKneeY={avgKneeY:F3} hipKneeDist={hipKneeDist:F3}m");
+                    Vector3 kneeCenter = (leftKnee.position + rightKnee.position) * 0.5f;
+                    var fp = GetFloorPlane();
+                    if (fp.HasValue)
+                    {
+                        hipKneeDist = fp.Value.GetDistanceToPoint(pelvis.position)
+                                    - fp.Value.GetDistanceToPoint(kneeCenter);
+                        if (DebugMode) Debug.Log($"[SQUAT CAL] Joint+plane path — hipKneeDist={hipKneeDist:F3}m");
+                    }
+                    else
+                    {
+                        hipKneeDist = pelvis.position.y - kneeCenter.y;
+                        if (DebugMode) Debug.Log($"[SQUAT CAL] Joint path — hipKneeDist={hipKneeDist:F3}m");
+                    }
                 }
                 else
                 {
-                    Debug.LogWarning($"[SQUAT CAL] No world landmarks AND no knee joints — squat tracking will not work. mpManager={mpManager != null}, HasWorldKeyLandmarks={mpManager?.HasWorldKeyLandmarks}");
+                    Debug.LogWarning($"[SQUAT CAL] No pixel landmarks, no world landmarks, and no knee joints — squat tracking will not work.");
                 }
             }
         }
@@ -112,7 +138,10 @@ public class TorsoTrackingModule : MotionTrackingModule
             neutralPelvisRotation = pelvis.eulerAngles,
             neutralSpinePosition = spine.position,
             neutralSpineToPelvisOffset = spine.position - pelvis.position,
-            neutralHipKneeDistance = hipKneeDist
+            neutralHipKneeDistance  = hipKneeDist,
+            neutralHipKneeRatio     = hipKneeRatio,
+            neutralLeftKneeAngle    = neutralLeftKneeAngle,
+            neutralRightKneeAngle   = neutralRightKneeAngle,
         };
 
         Debug.Log($"TorsoTrackingModule: Captured calibration — " +
@@ -288,63 +317,78 @@ public class TorsoTrackingModule : MotionTrackingModule
     private void UpdateSquat(ref CapturyInputState state, Transform pelvis)
     {
         var cal = TorsoCalibration;
-
         bool log = DebugMode && Time.frameCount % 60 == 0;
-
-        // World-landmark path (MediaPipe/OAK-D): body-relative positions, camera-invariant.
-        // Uses the same hipY - kneeY formula as the joint path; no special-casing needed.
         var mpManager = manager as MediaPipeMotionTrackingManager;
-        if (mpManager != null && mpManager.HasWorldKeyLandmarks)
+
+        // Priority 1: Knee angle from world landmarks — scale-invariant, works for all modes.
+        // Uses the minimum of the two individual knee drops so a leg lift (one knee bends,
+        // other stays straight) produces zero squat depth rather than a false positive.
+        if (mpManager != null && mpManager.HasWorldKeyLandmarks && mpManager.HasWorldKeyAnkles && cal.neutralHipKneeRatio > 0f)
         {
             var wkl = mpManager.WorldKeyLandmarks;
-            float avgHipY  = (wkl[0].y + wkl[1].y) * 0.5f;
-            float avgKneeY = (wkl[2].y + wkl[3].y) * 0.5f;
-            float dist  = avgHipY - avgKneeY;
-            float depth = Mathf.Max(0f, cal.neutralHipKneeDistance - dist);
-            if (log) Debug.Log($"[SQUAT] World path — neutral={cal.neutralHipKneeDistance:F3} current={dist:F3} depth={depth:F3} | hipY={avgHipY:F3} kneeY={avgKneeY:F3}");
-            ApplySquatState(ref state, depth);
+            float lAngle = Vector3.Angle(wkl[0] - wkl[2], wkl[4] - wkl[2]);
+            float rAngle = Vector3.Angle(wkl[1] - wkl[3], wkl[5] - wkl[3]);
+            float lDrop = Mathf.Max(0f, cal.neutralLeftKneeAngle  - lAngle);
+            float rDrop = Mathf.Max(0f, cal.neutralRightKneeAngle - rAngle);
+            float minDrop = Mathf.Min(lDrop, rDrop);
+            float maxDrop = Mathf.Max(lDrop, rDrop);
+            // If both knees are bending at similar angles it's a squat — use max for best signal.
+            // If one leg is bending much more than the other it's a leg lift — use min to suppress.
+            // Only run the symmetry test when both drops are meaningfully large (> 5°).
+            // Below that threshold, default to "symmetric" so tiny noise doesn't trigger the leg-lift branch.
+            float ratio = maxDrop > 5f ? minDrop / maxDrop : 1f;
+            float angleDrop = ratio >= 0.6f ? maxDrop : 0f;
+            float rawDepth = Mathf.Clamp01(angleDrop / 80f);
+            _smoothedSquatDepth = Mathf.Lerp(_smoothedSquatDepth, rawDepth, Time.deltaTime * 8f);
+            if (log) Debug.Log($"[SQUAT] Knee angle — neutral={cal.neutralHipKneeRatio:F1}° L={lAngle:F1}°(drop={lDrop:F1}) R={rAngle:F1}°(drop={rDrop:F1}) ratio={ratio:F2} drop={angleDrop:F1}° depth={_smoothedSquatDepth:F3}");
+            ApplySquatState(ref state, _smoothedSquatDepth);
             return;
         }
 
-        if (log) Debug.Log($"[SQUAT] No world landmarks — falling back to joints. mpManager={mpManager != null} HasWorldKeyLandmarks={mpManager?.HasWorldKeyLandmarks}");
-
-        // Joint-based path (Captury/Kinect): world-space Y is stable regardless of position.
+        // Priority 2: Joint path fallback (Captury/Kinect or no MediaPipe data).
         Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
         Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
-
         if (leftKnee == null || rightKnee == null)
         {
-            if (log) Debug.Log($"[SQUAT] Joint path — knee joints null: left={leftKnee != null} right={rightKnee != null}");
+            if (log) Debug.Log($"[SQUAT] Joint path — knee joints null");
             state.squatDepth = 0f;
             state.isSquatting = 0f;
             return;
         }
-
-        float jointKneeY = (leftKnee.position.y + rightKnee.position.y) * 0.5f;
-        float currentDist = pelvis.position.y - jointKneeY;
+        Vector3 kneeCenter = (leftKnee.position + rightKnee.position) * 0.5f;
+        var fp = GetFloorPlane();
+        float currentDist = fp.HasValue
+            ? fp.Value.GetDistanceToPoint(pelvis.position) - fp.Value.GetDistanceToPoint(kneeCenter)
+            : pelvis.position.y - kneeCenter.y;
         float jointDepth = Mathf.Max(0f, cal.neutralHipKneeDistance - currentDist);
-        if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} depth={jointDepth:F3}");
+        if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} depth={jointDepth:F3} floorPlane={fp.HasValue}");
         ApplySquatState(ref state, jointDepth);
- 
-        //Debug.Log($"TorsoTrackingModule: PelvisY={pelvis.position.y:F3} KneeY={jointKneeY:F3} HipKneeDist={currentDist:F3} SquatDepth={jointDepth:F3}");
+    }
+
+    private static Plane? GetFloorPlane()
+    {
+        var src = MotionTrackingOrchestrator.Instance as IRoomFrameSource;
+        if (src == null || !src.HasRoomFrame) return null;
+        return src.CurrentFrame?.floorPlane;
     }
 
     private void ApplySquatState(ref CapturyInputState state, float depth)
     {
         state.squatDepth = depth;
 
-        bool currentlySquatting = depth > SquatThreshold;
+        float threshold = SquatThreshold;
+        bool currentlySquatting = depth > threshold;
         state.isSquatting = currentlySquatting ? 1f : 0f;
 
         if (currentlySquatting != isSquatting)
         {
             isSquatting = currentlySquatting;
             if (DebugMode)
-                Debug.Log($"TorsoTrackingModule: Squat {(isSquatting ? "START" : "END")} — depth={depth:F3}m, threshold={SquatThreshold:F3}m");
+                Debug.Log($"TorsoTrackingModule: Squat {(isSquatting ? "START" : "END")} — depth={depth:F3}, threshold={threshold:F3}");
         }
 
         if (DebugMode && Time.frameCount % 60 == 0)
-            Debug.Log($"TorsoTrackingModule: SquatDepth={depth:F3}m");
+            Debug.Log($"TorsoTrackingModule: SquatDepth={depth:F3}");
     }
 
     #endregion
