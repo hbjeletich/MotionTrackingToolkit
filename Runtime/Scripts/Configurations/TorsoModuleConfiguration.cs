@@ -15,6 +15,9 @@ public class TorsoModuleConfiguration : ModuleConfiguration
     [Tooltip("Ratio threshold to ignore whole-body movement vs torso-only movement")]
     public float wholeBodyMovementThreshold = 3f;
 
+    [Tooltip("Squat depth (0-1) above which weight-shift detection is suppressed, so bending into a squat isn't misread as a lateral weight shift.")]
+    public float squatSuppressesShiftAt = 0.08f;
+
     [Header("Bend Detection")]
     public bool isBendTracked = true;
 
@@ -26,6 +29,12 @@ public class TorsoModuleConfiguration : ModuleConfiguration
 
     [Tooltip("Normalized squat depth (0–1) that triggers isSquatting. 0.25 = roughly a quarter squat.")]
     public float squatThreshold = 0.15f;
+
+    [Tooltip("Horizontal pelvis speed (m/s) above which squat detection is suppressed — filters out knee flexion from walking gait rather than a stationary squat.")]
+    public float squatWalkingSpeedThreshold = 0.5f;
+
+    [Tooltip("Minimum MediaPipe visibility/confidence (0-1) required on the knee and ankle landmarks before trusting the knee-angle squat signal. Guards against unreliable estimates when legs are cropped or occluded, e.g. standing close to the camera.")]
+    public float squatMinLandmarkConfidence = 0.5f;
 
     [Header("Joint Names")]
     [Tooltip("Name of the pelvis/hips joint in your skeleton")]

@@ -46,6 +46,9 @@ public class TorsoTrackingModule : MotionTrackingModule
     private bool isBentOver = false;
     private bool isSquatting = false;
     private float _smoothedSquatDepth = 0f;
+    private Vector3 _prevPelvisPositionForSquatGate;
+    private bool _hasPrevPelvisPositionForSquatGate = false;
+    private float _smoothedPelvisHorizontalSpeed = 0f;
 
     // calibration access
     private TorsoModuleConfiguration TorsoConfig => GetModuleConfig() as TorsoModuleConfiguration;
@@ -60,6 +63,9 @@ public class TorsoTrackingModule : MotionTrackingModule
     public float BentOverAngleThreshold => TorsoConfig?.bentOverAngleThreshold ?? 30f;
     public float WholeBodyMovementThreshold => TorsoConfig?.wholeBodyMovementThreshold ?? 3f;
     public float SquatThreshold => TorsoConfig?.squatThreshold ?? 0.12f;
+    public float SquatWalkingSpeedThreshold => TorsoConfig?.squatWalkingSpeedThreshold ?? 0.5f;
+    public float SquatMinLandmarkConfidence => TorsoConfig?.squatMinLandmarkConfidence ?? 0.5f;
+    public float SquatSuppressesShiftAt => TorsoConfig?.squatSuppressesShiftAt ?? 0.08f;
 
     #endregion
 
@@ -159,6 +165,8 @@ public class TorsoTrackingModule : MotionTrackingModule
         isShiftingRight = false;
         isBentOver = false;
         isSquatting = false;
+        _hasPrevPelvisPositionForSquatGate = false;
+        _smoothedPelvisHorizontalSpeed = 0f;
     }
 
     public override string SerializeCalibration()
@@ -223,14 +231,16 @@ public class TorsoTrackingModule : MotionTrackingModule
         Vector3 currentRotation = pelvis.eulerAngles;
         Vector3 relativeRotation = NormalizeEulerAngles(currentRotation - cal.neutralPelvisRotation);
 
+        // Squat runs first so weight-shift can check state.squatDepth and suppress
+        // itself when the user is bending into a squat rather than shifting sideways.
+        if (IsSquatTracked)
+            UpdateSquat(ref state, pelvis);
+
         if (IsShiftTracked)
             UpdateWeightShiftRelative(ref state, pelvisMovement, spineMovement, relativeMovement);
 
         if (IsBendTracked)
             UpdateBentOver(ref state, relativeRotation);
-
-        if (IsSquatTracked)
-            UpdateSquat(ref state, pelvis);
     }
 
     private void UpdateWeightShiftRelative(ref CapturyInputState state, Vector3 pelvisMovement, Vector3 spineMovement, Vector3 relativeMovement)
@@ -245,13 +255,15 @@ public class TorsoTrackingModule : MotionTrackingModule
             isWholeBodyMovement = movementRatio > WholeBodyMovementThreshold;
         }
 
+        bool isSquattingNow = IsSquatTracked && state.squatDepth > SquatSuppressesShiftAt;
+
         float shiftAmount = relativeMovement.x * Sensitivity;
 
-        if (isWholeBodyMovement)
+        if (isWholeBodyMovement || isSquattingNow)
         {
             shiftAmount = 0f;
             if (DebugMode && Time.frameCount % 60 == 0)
-                Debug.Log($"TorsoTrackingModule: Whole-body movement detected — ignoring weight shift");
+                Debug.Log($"TorsoTrackingModule: Ignoring weight shift — {(isSquattingNow ? $"squat in progress (depth={state.squatDepth:F3})" : "whole-body movement detected")}");
         }
 
         state.weightShiftX = Mathf.Clamp(shiftAmount / WeightShiftThreshold, -1f, 1f);
@@ -320,11 +332,41 @@ public class TorsoTrackingModule : MotionTrackingModule
         bool log = DebugMode && Time.frameCount % 60 == 0;
         var mpManager = manager as MediaPipeMotionTrackingManager;
 
+        // Walking gate: gait naturally flexes the knees enough during the
+        // double-support phase to cross the squat depth threshold, so suppress
+        // squat detection while the pelvis is translating across the floor
+        // (squats are performed roughly in place; walking is not).
+        float horizontalSpeed = 0f;
+        if (_hasPrevPelvisPositionForSquatGate && Time.deltaTime > 0f)
+        {
+            Vector3 delta = pelvis.position - _prevPelvisPositionForSquatGate;
+            horizontalSpeed = new Vector2(delta.x, delta.z).magnitude / Time.deltaTime;
+        }
+        _prevPelvisPositionForSquatGate = pelvis.position;
+        _hasPrevPelvisPositionForSquatGate = true;
+        _smoothedPelvisHorizontalSpeed = Mathf.Lerp(_smoothedPelvisHorizontalSpeed, horizontalSpeed, Time.deltaTime * 8f);
+        bool isWalking = _smoothedPelvisHorizontalSpeed > SquatWalkingSpeedThreshold;
+
         // Priority 1: Knee angle from world landmarks — scale-invariant, works for all modes.
         // Uses the minimum of the two individual knee drops so a leg lift (one knee bends,
         // other stays straight) produces zero squat depth rather than a false positive.
         if (mpManager != null && mpManager.HasWorldKeyLandmarks && mpManager.HasWorldKeyAnkles && cal.neutralHipKneeRatio > 0f)
         {
+            // Knee/ankle visibility gate: these landmarks are the first to degrade when
+            // legs are cropped out of frame or occluded (e.g. standing close to the
+            // camera), and a short hip-knee-ankle lever arm turns small position noise
+            // into a large angle swing. Hold the last known depth rather than trust a
+            // possibly-hallucinated angle when confidence is low.
+            float kneeAnkleConfidence = Mathf.Min(
+                Mathf.Min(mpManager.GetLandmarkConfidence(25), mpManager.GetLandmarkConfidence(26)),
+                Mathf.Min(mpManager.GetLandmarkConfidence(27), mpManager.GetLandmarkConfidence(28)));
+            if (kneeAnkleConfidence < SquatMinLandmarkConfidence)
+            {
+                if (log) Debug.Log($"[SQUAT] Knee angle — low landmark confidence (min={kneeAnkleConfidence:F2} < {SquatMinLandmarkConfidence:F2}), holding depth={_smoothedSquatDepth:F3}");
+                ApplySquatState(ref state, _smoothedSquatDepth);
+                return;
+            }
+
             var wkl = mpManager.WorldKeyLandmarks;
             float lAngle = Vector3.Angle(wkl[0] - wkl[2], wkl[4] - wkl[2]);
             float rAngle = Vector3.Angle(wkl[1] - wkl[3], wkl[5] - wkl[3]);
@@ -338,9 +380,10 @@ public class TorsoTrackingModule : MotionTrackingModule
             // Below that threshold, default to "symmetric" so tiny noise doesn't trigger the leg-lift branch.
             float ratio = maxDrop > 5f ? minDrop / maxDrop : 1f;
             float angleDrop = ratio >= 0.6f ? maxDrop : 0f;
+            if (isWalking) angleDrop = 0f;
             float rawDepth = Mathf.Clamp01(angleDrop / 80f);
             _smoothedSquatDepth = Mathf.Lerp(_smoothedSquatDepth, rawDepth, Time.deltaTime * 8f);
-            if (log) Debug.Log($"[SQUAT] Knee angle — neutral={cal.neutralHipKneeRatio:F1}° L={lAngle:F1}°(drop={lDrop:F1}) R={rAngle:F1}°(drop={rDrop:F1}) ratio={ratio:F2} drop={angleDrop:F1}° depth={_smoothedSquatDepth:F3}");
+            if (log) Debug.Log($"[SQUAT] Knee angle — neutral={cal.neutralHipKneeRatio:F1}° L={lAngle:F1}°(drop={lDrop:F1}) R={rAngle:F1}°(drop={rDrop:F1}) ratio={ratio:F2} walking={isWalking}(speed={_smoothedPelvisHorizontalSpeed:F2}) drop={angleDrop:F1}° depth={_smoothedSquatDepth:F3}");
             ApplySquatState(ref state, _smoothedSquatDepth);
             return;
         }
@@ -361,7 +404,8 @@ public class TorsoTrackingModule : MotionTrackingModule
             ? fp.Value.GetDistanceToPoint(pelvis.position) - fp.Value.GetDistanceToPoint(kneeCenter)
             : pelvis.position.y - kneeCenter.y;
         float jointDepth = Mathf.Max(0f, cal.neutralHipKneeDistance - currentDist);
-        if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} depth={jointDepth:F3} floorPlane={fp.HasValue}");
+        if (isWalking) jointDepth = 0f;
+        if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} walking={isWalking}(speed={_smoothedPelvisHorizontalSpeed:F2}) depth={jointDepth:F3} floorPlane={fp.HasValue}");
         ApplySquatState(ref state, jointDepth);
     }
 
