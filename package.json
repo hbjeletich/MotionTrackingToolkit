@@ -1,8 +1,8 @@
 {
   "name": "com.hbjeletich.capturytoolkit",
-  "version": "1.0.0",
-  "displayName": "Captury Motion Tracking Toolkit",
-  "description": "Unity motion tracking toolkit using Captury and Input System for torso, foot, arm, and head tracking with walk and gait analysis",
+  "version": "2.0.0",
+  "displayName": "Motion Tracking Toolkit",
+  "description": "Unity motion tracking toolkit supporting Captury, Kinect, and MediaPipe via Input System, with torso, foot, arm, head, and balance tracking, squat/gait analysis, room calibration, and motion recording",
   "unity": "2020.3",
   "dependencies": {
     "com.unity.inputsystem": "1.4.0"
@@ -22,6 +22,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/hbjeletich/CapturyUnityToolkit.git"
+    "url": "https://github.com/hbjeletich/MotionTrackingToolkit.git"
   }
 }
