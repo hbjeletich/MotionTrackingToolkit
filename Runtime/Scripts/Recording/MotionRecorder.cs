@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using Debug = UnityEngine.Debug;
+using C3dWriter = Vub.Etro.IO.C3dWriter;
+using C3dPoint = Vub.Etro.IO.Vector4;
 
 [System.Serializable]
 public class JointData
@@ -48,9 +49,10 @@ public class MotionRecording
 }
 
 /// <summary>
-/// Records motion capture data to JSON and converts it to C3D via a bundled Python script.
-/// Source-agnostic: reads joints through whichever IMotionTrackingManager is active in the
-/// scene (Captury, MediaPipe, Kinect, ...) rather than depending on a specific tracking system.
+/// Records motion capture data to JSON (full fidelity, including biomechanical input state) and
+/// natively writes a .c3d file (positions only) via the vendored c3d4sharp writer — no external
+/// Python dependency. Source-agnostic: reads joints through whichever IMotionTrackingManager is
+/// active in the scene (Captury, MediaPipe, Kinect, ...) rather than depending on one system.
 /// </summary>
 public class MotionRecorder : MonoBehaviour
 {
@@ -59,16 +61,6 @@ public class MotionRecorder : MonoBehaviour
     [SerializeField] private float recordingFrameRate = 30f;
     [SerializeField] private string outputFolderName = "MotionRecordings";
     [SerializeField] private bool recordInputStates = true;
-
-    [Header("Joint Tracking")]
-    [SerializeField]
-    private string[] jointsToRecord = {
-        "Hips", "Spine", "Spine1", "Spine2", "Spine3", "Spine4", "Neck", "Head",
-        "LeftShoulder", "LeftUpperArm", "LeftLowerArm", "LeftHand",
-        "RightShoulder", "RightUpperArm", "RightLowerArm", "RightHand",
-        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
-        "RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes"
-    };
 
     [Header("Debug")]
     [SerializeField] private bool debugMode = true;
@@ -124,11 +116,22 @@ public class MotionRecorder : MonoBehaviour
     }
 
     /// <summary>
-    /// Looks for whichever IMotionTrackingManager implementation is active in the scene
-    /// (Captury, MediaPipe, Kinect, multiplayer, ...). Safe to call repeatedly.
+    /// Resolves the active tracking source. Prefers MotionTrackingOrchestrator — the toolkit's
+    /// documented single entry point (Runtime/Scripts/Core/MotionTrackingOrchestrator.cs), which
+    /// activates exactly one child manager and deactivates the others — over a raw scene scan,
+    /// which could otherwise bind directly to a disabled-but-still-findable child manager
+    /// instead of the orchestrator facade. Falls back to scanning for any IMotionTrackingManager
+    /// for scenes that don't use the orchestrator prefab. Safe to call repeatedly.
     /// </summary>
     private void TryResolveTrackingManager()
     {
+        if (MotionTrackingOrchestrator.Instance != null)
+        {
+            trackingManager = MotionTrackingOrchestrator.Instance;
+            if (debugMode) Debug.Log($"MotionRecorder: Using tracking source '{trackingManager.Source}' (via MotionTrackingOrchestrator).");
+            return;
+        }
+
         foreach (var behaviour in FindObjectsOfType<MonoBehaviour>())
         {
             if (behaviour is IMotionTrackingManager manager)
@@ -183,9 +186,10 @@ public class MotionRecorder : MonoBehaviour
         recordedFrames = new List<MotionFrame>();
         recordingMetadata = new Dictionary<string, string>();
 
+        string[] lookupNames = JointNameSets.GetLookupNames(trackingManager.Source);
         int mappedJointCount = 0;
-        foreach (var jointName in jointsToRecord)
-            if (trackingManager.GetJointByName(jointName) != null)
+        foreach (var lookupName in lookupNames)
+            if (trackingManager.GetJointByName(lookupName) != null)
                 mappedJointCount++;
 
         recordingMetadata["Unity Version"] = Application.unityVersion;
@@ -198,7 +202,7 @@ public class MotionRecorder : MonoBehaviour
         lastConversionStatus = "";
         lastC3DPath = "";
 
-        Debug.Log($"Started motion recording! Source: {trackingManager.Source}, mapped joints: {mappedJointCount}/{jointsToRecord.Length}");
+        Debug.Log($"Started motion recording! Source: {trackingManager.Source}, mapped joints: {mappedJointCount}/{JointNameSets.CanonicalNames.Length}");
     }
 
     public void StopRecording()
@@ -222,15 +226,16 @@ public class MotionRecorder : MonoBehaviour
         frame.timestamp = Time.time;
 
         var jointDataList = new List<JointData>();
+        string[] lookupNames = JointNameSets.GetLookupNames(trackingManager.Source);
 
-        foreach (var jointName in jointsToRecord)
+        for (int i = 0; i < JointNameSets.CanonicalNames.Length; i++)
         {
-            Transform joint = trackingManager.GetJointByName(jointName);
+            Transform joint = trackingManager.GetJointByName(lookupNames[i]);
             if (joint == null) continue;
 
             jointDataList.Add(new JointData
             {
-                name = jointName,
+                name = JointNameSets.CanonicalNames[i],
                 position = joint.position,
                 rotation = joint.rotation
             });
@@ -343,8 +348,7 @@ public class MotionRecorder : MonoBehaviour
 
             Debug.Log($"Motion recording saved to: {filepath}");
 
-            string scriptPath = CreatePythonConversionScript(filepath);
-            RunPythonConversion(scriptPath, filepath);
+            WriteC3D(filepath);
         }
         catch (Exception e)
         {
@@ -353,270 +357,56 @@ public class MotionRecorder : MonoBehaviour
         }
     }
 
-    private string CreatePythonConversionScript(string jsonFilePath)
-    {
-        string pythonScript = GeneratePythonConversionScript(jsonFilePath);
-        string scriptPath = Path.ChangeExtension(jsonFilePath, ".py");
-
-        try
-        {
-            File.WriteAllText(scriptPath, pythonScript);
-            Debug.Log($"Python conversion script created: {scriptPath}");
-            return scriptPath;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to create Python script: {e.Message}");
-            return null;
-        }
-    }
-
     /// <summary>
-    /// Runs the generated conversion script so a .c3d file is produced automatically instead of
-    /// requiring someone to run it by hand. Requires Python + `pip install c3d` on this machine —
-    /// a known limitation of this simple approach, kept deliberately simple for now.
+    /// Writes a .c3d file (positions only — the JSON above stays the full-fidelity record) using
+    /// the vendored c3d4sharp writer. Same coordinate convention the old Python script used:
+    /// millimeters, X = right, Y = forward, Z = up, residual -1 for a joint missing that frame.
     /// </summary>
-    private void RunPythonConversion(string scriptPath, string jsonFilePath)
+    private void WriteC3D(string jsonFilePath)
     {
-        if (string.IsNullOrEmpty(scriptPath))
-        {
-            lastConversionStatus = "Conversion script was not created.";
-            return;
-        }
-
-        string expectedC3DPath = jsonFilePath.Replace(".json", "_PRODUCTION.c3d");
+        string c3dPath = Path.ChangeExtension(jsonFilePath, ".c3d");
 
         try
         {
-            var psi = new ProcessStartInfo("python", $"\"{scriptPath}\" \"{jsonFilePath}\"")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
+            var writer = new C3dWriter(JointNameSets.CanonicalNames, recordingFrameRate, new string[0], 0, false);
 
-            var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            // c3d4sharp defaults POINT:SCALE to a positive value (= 16-bit integer storage),
+            // but WriteFloatFrame writes 4-byte floats — must flag float storage explicitly,
+            // or compliant readers will misinterpret the data section. See Readme.txt.
+            writer.Header.ScaleFactor = -1f;
+            writer.SetParameter<float>("POINT:SCALE", -1f);
 
-            process.OutputDataReceived += (s, e) =>
+            writer.Open(c3dPath);
+
+            foreach (var frame in recordedFrames)
             {
-                if (!string.IsNullOrEmpty(e.Data) && debugMode) Debug.Log($"[c3d convert] {e.Data}");
-            };
-            process.ErrorDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data)) Debug.LogWarning($"[c3d convert] {e.Data}");
-            };
-            process.Exited += (s, e) =>
-            {
-                if (process.ExitCode == 0 && File.Exists(expectedC3DPath))
+                // Recenter on hips so the recording sits near the origin regardless of where the
+                // person stood relative to the tracking rig's world origin that session. The JSON
+                // above keeps raw world coordinates — this offset is applied only for the C3D.
+                JointData hips = Array.Find(frame.joints, j => j.name == "SpineBase");
+                Vector3 origin = hips != null ? hips.position : Vector3.zero;
+
+                var points = new C3dPoint[JointNameSets.CanonicalNames.Length];
+                for (int i = 0; i < JointNameSets.CanonicalNames.Length; i++)
                 {
-                    lastC3DPath = expectedC3DPath;
-                    lastConversionStatus = $"C3D conversion succeeded: {expectedC3DPath}";
+                    JointData joint = Array.Find(frame.joints, j => j.name == JointNameSets.CanonicalNames[i]);
+                    points[i] = joint != null
+                        ? new C3dPoint((joint.position.x - origin.x) * 1000f, (joint.position.z - origin.z) * 1000f, (joint.position.y - origin.y) * 1000f, 0f)
+                        : new C3dPoint(0f, 0f, 0f, -1f);
                 }
-                else
-                {
-                    lastConversionStatus = $"C3D conversion failed (exit code {process.ExitCode}). Run the .py script manually to see details.";
-                }
-                process.Dispose();
-            };
+                writer.WriteFloatFrame(points);
+            }
 
-            lastConversionStatus = "Converting to C3D...";
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
+            writer.Close();
+
+            lastC3DPath = c3dPath;
+            lastConversionStatus = $"C3D written: {c3dPath}";
+            Debug.Log($"MotionRecorder: {lastConversionStatus}");
         }
         catch (Exception e)
         {
-            lastConversionStatus = $"Could not launch Python (is it installed and on PATH?): {e.Message}";
-            Debug.LogWarning($"MotionRecorder: {lastConversionStatus}");
+            lastConversionStatus = $"C3D write failed: {e.Message}";
+            Debug.LogError($"MotionRecorder: {lastConversionStatus}");
         }
-    }
-
-    private string GeneratePythonConversionScript(string jsonFilePath)
-    {
-        string jsonFileName = Path.GetFileName(jsonFilePath);
-        string c3dFileName = Path.ChangeExtension(jsonFileName, ".c3d");
-
-        return $@"#!/usr/bin/env python3
-import json
-import numpy as np
-import sys
-import os
-import warnings
-
-def convert_to_c3d(json_path):
-    # convert motion capture JSON to C3D
-
-    try:
-        import c3d
-        print('Creating production C3D file...')
-    except ImportError:
-        print('Error: c3d library not installed. Run: pip install c3d')
-        return None
-
-    # suppress the no analog data warning since we expect this
-    warnings.filterwarnings('ignore', message='No analog data found in file.')
-
-    # Load motion data
-    with open(json_path, 'r') as f:
-        data = json.load(f)
-
-    frames = data['frames']
-    joint_names = [joint['name'] for joint in frames[0]['joints']]
-    frame_rate = data['frameRate']
-
-    print(f'Processing: {{len(frames)}} frames, {{len(joint_names)}} joints, {{frame_rate}} Hz')
-
-    # Prepare motion data in correct format
-    print('Converting motion data to clinical format...')
-
-    n_frames = len(frames)
-    n_points = len(joint_names)
-    all_frames_data = []
-
-    for frame_idx, frame in enumerate(frames):
-        if frame_idx % 100 == 0:
-            print(f'Frame {{frame_idx}}/{{n_frames}}')
-
-        frame_joints = {{joint['name']: joint for joint in frame['joints']}}
-        point_data = np.zeros((n_points, 4), dtype=np.float32)
-
-        for point_idx, joint_name in enumerate(joint_names):
-            if joint_name in frame_joints:
-                pos = frame_joints[joint_name]['position']
-                # convert to clinical coordinates (mm)
-                point_data[point_idx, 0] = pos['x'] * 1000    # X (lateral)
-                point_data[point_idx, 1] = pos['z'] * 1000    # Y (anterior) - swapped
-                point_data[point_idx, 2] = -pos['y'] * 1000   # Z (superior) - flipped
-                point_data[point_idx, 3] = 0.0                # Residual: 0 = good data
-            else:
-                # Missing joint data
-                point_data[point_idx, 0:3] = 0.0
-                point_data[point_idx, 3] = -1.0               # Residual: -1 = missing
-
-        # Analog data: empty but properly shaped to avoid library bugs
-        # Shape: (n_analog_channels, n_analog_samples_per_frame)
-        # For no analog data: (0, 1) - this prevents index errors
-        analog_data = np.array([], dtype=np.float32).reshape(0, 1)
-
-        # Add frame as required tuple format
-        all_frames_data.append((point_data, analog_data))
-
-    # Create output file
-    output_file = json_path.replace('.json', '_PRODUCTION.c3d')
-
-    print(f'Creating C3D file: {{output_file}}')
-
-    try:
-        with open(output_file, 'wb') as handle:
-            # Create writer with minimal, stable parameters
-            writer = c3d.Writer(
-                point_rate=float(frame_rate),  # Ensure float
-                analog_rate=0                  # No analog data
-            )
-
-            # Set point labels safely
-            try:
-                writer.set_point_labels(joint_names)
-                print('Joint labels set successfully')
-            except Exception as e:
-                print(f'Could not set labels: {{e}}')
-                print('File will work but without joint names')
-
-            # Add all motion frames
-            print('Adding motion frames...')
-            try:
-                writer.add_frames(all_frames_data)
-                print('All frames added successfully')
-            except Exception as e:
-                print(f'Error adding frames: {{e}}')
-                return None
-
-            # Write file with error handling
-            print('Writing C3D file...')
-            try:
-                writer.write(handle)
-                print(' C3D file written successfully')
-            except Exception as e:
-                print(f'Writer cleanup warning: {{e}}')
-                print('Checking if file was created anyway...')
-
-        # Verify the file was created and is valid
-        print('Verifying C3D file...')
-
-        if not os.path.exists(output_file):
-            print('File was not created')
-            return None
-
-        file_size = os.path.getsize(output_file)
-        if file_size == 0:
-            print('File is empty')
-            return None
-
-        print(f'File created: {{file_size}} bytes')
-
-        # Test if file can be read
-        try:
-            with open(output_file, 'rb') as handle:
-                reader = c3d.Reader(handle)
-
-                # Get file info
-                points_count = getattr(reader, 'point_used', 0)
-                frames_count = getattr(reader, 'last_frame', 0) - getattr(reader, 'first_frame', 0) + 1
-                rate = getattr(reader, 'point_rate', 0)
-
-                print(f'File verification successful:')
-                print(f'  Points: {{points_count}}')
-                print(f'  Frames: {{frames_count}}')
-                print(f'  Frame rate: {{rate}} Hz')
-                print(f'  Duration: {{frames_count/rate:.1f}} seconds')
-
-                # Check if labels are present
-                if hasattr(reader, 'point_labels') and reader.point_labels:
-                    print(f'  Labels: {{len(reader.point_labels)}} joints')
-                    print(f'  First few: {{reader.point_labels[:3]}}')
-                else:
-                    print('  Labels: Not included')
-
-        except Exception as e:
-            print(f'File created but verification failed: {{e}}')
-
-        return output_file
-
-    except Exception as e:
-        print(f'Unexpected error during conversion: {{e}}')
-        import traceback
-        traceback.print_exc()
-        return None
-
-    finally:
-        # Reset warning filters
-        warnings.resetwarnings()
-
-def main():
-    if len(sys.argv) != 2:
-        print('Usage: python production_c3d_converter.py your_file.json')
-        print('Example: python production_c3d_converter.py motion_recording_2025-07-31_15-21-39.json')
-        return
-
-    json_file = sys.argv[1]
-
-    if not os.path.exists(json_file):
-        print(f'Error: File not found: {{json_file}}')
-        return
-
-    print('=== C3D Converter ===')
-    print(f'Input: {{json_file}}')
-
-    result = convert_to_c3d(json_file)
-
-    if result:
-        print(f'Success! Output: {{result}}')
-    else:
-        print(f'Conversion failed!')
-
-if __name__ == '__main__':
-    main()
-";
     }
 }
