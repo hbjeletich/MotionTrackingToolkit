@@ -3,14 +3,35 @@ using System.IO;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
+/// <summary>
+/// Launches and supervises the Python pose-landmark sender as a child process.
+///
+/// Picks which exe to run — the webcam MediaPipe sender or the OAK-D depth sender —
+/// based on the active MotionSource (read from MotionTrackingOrchestrator.Instance if
+/// one is present in the scene, otherwise falls back to fallbackSource). Runs in Start()
+/// rather than Awake() so the orchestrator (which resolves its source in Awake) has
+/// already set Instance by the time this reads it, regardless of script execution order.
+///
+/// A source-select screen can call ConfigureAndStart() directly to relaunch with a
+/// specific source/camera without waiting on the orchestrator at all.
+/// </summary>
 public class MediaPipeProcessManager : MonoBehaviour
 {
     [Header("Mode")]
     [SerializeField] private bool developmentMode = true;
 
-    [Header("Sender")]
-    [SerializeField] private string senderRelativePath = "Python/Oak-D/oak_d_mediapipe.exe"; 
-    // [SerializeField] private string cameraSelection = "0";
+    [Header("Sender Executables (relative to StreamingAssets)")]
+    [SerializeField] private string mediaPipeSenderRelativePath = "Python/MediaPipe/MediaPipeSender.exe";
+    [SerializeField] private string oakDSenderRelativePath = "Python/Oak-D/oak_d_mediapipe.exe";
+
+    [Header("Source")]
+    [Tooltip("Used only when no MotionTrackingOrchestrator is present in the scene to resolve the active source.")]
+    [SerializeField] private MotionSource fallbackSource = MotionSource.MediaPipe;
+
+    [Header("Sender Args")]
+    [Tooltip("Camera index (e.g. \"1\") or device name passed as --camera to the webcam sender. " +
+             "Ignored for OAK-D — it always uses its single fixed device.")]
+    [SerializeField] private string cameraSelection = "0";
     [SerializeField] private int port = 7000;
     [SerializeField] private string model = "full";
     [SerializeField] private bool showPreview = false;
@@ -27,10 +48,14 @@ public class MediaPipeProcessManager : MonoBehaviour
     private bool isShuttingDown = false;
     private int restartCount = 0;
     private float lastCrashTime = 0f;
+    private MotionSource launchedSource;
 
     public bool IsProcessRunning => senderProcess != null && !senderProcess.HasExited;
 
     private static MediaPipeProcessManager _instance;
+
+    private MotionSource ActiveSource =>
+        MotionTrackingOrchestrator.Instance != null ? MotionTrackingOrchestrator.Instance.Source : fallbackSource;
 
     void Awake()
     {
@@ -40,8 +65,12 @@ public class MediaPipeProcessManager : MonoBehaviour
             return;
         }
         _instance = this;
-        if (developmentMode) return;
-        StartSender();
+    }
+
+    void Start()
+    {
+        if (_instance != this || developmentMode) return;
+        StartSender(ActiveSource);
     }
 
     void Update()
@@ -60,7 +89,7 @@ public class MediaPipeProcessManager : MonoBehaviour
                 restartCount++;
                 lastCrashTime = Time.time;
                 Debug.Log($"MediaPipeProcessManager: Restarting sender (attempt {restartCount})...");
-                StartSender();
+                StartSender(launchedSource);
             }
         }
         else if (restartCount >= maxRestartAttempts)
@@ -69,9 +98,25 @@ public class MediaPipeProcessManager : MonoBehaviour
         }
     }
 
-    private void StartSender()
+    private string SenderPathFor(MotionSource source) => source switch
     {
-        string exePath = Path.Combine(Application.streamingAssetsPath, senderRelativePath);
+        MotionSource.OakD => oakDSenderRelativePath,
+        _                 => mediaPipeSenderRelativePath,
+    };
+
+    private string BuildArguments(MotionSource source)
+    {
+        string arguments = $"--port {port} --model {model}";
+        if (source != MotionSource.OakD && !string.IsNullOrEmpty(cameraSelection))
+            arguments += $" --camera \"{cameraSelection}\"";
+        if (showPreview) arguments += " --show";
+        return arguments;
+    }
+
+    private void StartSender(MotionSource source)
+    {
+        launchedSource = source;
+        string exePath = Path.Combine(Application.streamingAssetsPath, SenderPathFor(source));
 
         if (!File.Exists(exePath))
         {
@@ -79,11 +124,10 @@ public class MediaPipeProcessManager : MonoBehaviour
             return;
         }
 
-        string arguments = $"--port {port} --model {model}";
-        if (showPreview) arguments += " --show";
+        string arguments = BuildArguments(source);
 
         if (enableDebugLogging)
-            Debug.Log($"MediaPipeProcessManager: Starting sender — {exePath} {arguments}");
+            Debug.Log($"MediaPipeProcessManager: Starting {source} sender — {exePath} {arguments}");
 
         try
         {
@@ -106,8 +150,8 @@ public class MediaPipeProcessManager : MonoBehaviour
 
             if (enableDebugLogging)
             {
-                senderProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.Log($"[MediaPipeSender] {e.Data}"); };
-                senderProcess.ErrorDataReceived  += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.LogWarning($"[MediaPipeSender] {e.Data}"); };
+                senderProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.Log($"[{source}Sender] {e.Data}"); };
+                senderProcess.ErrorDataReceived  += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.LogWarning($"[{source}Sender] {e.Data}"); };
                 senderProcess.BeginOutputReadLine();
                 senderProcess.BeginErrorReadLine();
                 Debug.Log($"MediaPipeProcessManager: Sender started (PID: {senderProcess.Id})");
@@ -154,5 +198,19 @@ public class MediaPipeProcessManager : MonoBehaviour
     }
 
     public void StopSender()  { autoRestart = false; KillSender(); }
-    public void RestartSender() { KillSender(); isShuttingDown = false; restartCount = 0; StartSender(); }
+    public void RestartSender() { KillSender(); isShuttingDown = false; restartCount = 0; StartSender(ActiveSource); }
+
+    /// <summary>
+    /// Called by the source-select flow: sets the camera arg (webcam sources only, pass
+    /// null/empty for OAK-D or when not applicable) and (re)launches the sender matching
+    /// the given source, killing any process already running.
+    /// </summary>
+    public void ConfigureAndStart(MotionSource source, string camera = null)
+    {
+        if (camera != null) cameraSelection = camera;
+        isShuttingDown = false;
+        restartCount = 0;
+        KillSender();
+        StartSender(source);
+    }
 }

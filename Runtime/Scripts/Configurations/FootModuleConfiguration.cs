@@ -101,6 +101,7 @@ public class FootModuleConfiguration : ModuleConfiguration
                 walkTrackingSpineJointName = "SpineMid";
                 break;
 
+            case MotionSource.OakD:
             case MotionSource.MediaPipe:
                 leftFootJointName = "LeftFoot";
                 rightFootJointName = "RightFoot";

@@ -75,6 +75,7 @@ public class BalanceModuleConfiguration : ModuleConfiguration
                 rightToeBaseJointName = "FootRight";
                 break;
 
+            case MotionSource.OakD:
             case MotionSource.MediaPipe:
                 trunkJointName = "Spine1";
                 leftForeArmJointName = "LeftForeArm";

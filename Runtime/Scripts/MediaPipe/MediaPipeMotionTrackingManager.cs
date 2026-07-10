@@ -170,7 +170,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     #region IMotionTrackingManager
 
     public MotionTrackingConfiguration Config => config;
-    public MotionSource Source => MotionSource.MediaPipe;
+    public virtual MotionSource Source => MotionSource.MediaPipe;
     public bool SupportsRoomScale => _hasAbsoluteHip && activeRoomCalibration != null;
     public bool HasRoomBounds => activeRoomCalibration?.HasBoundary ?? false;
     public Vector3[] GetRoomBoundary() =>

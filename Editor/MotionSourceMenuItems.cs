@@ -20,6 +20,9 @@ public static class MotionSourceMenuItems
     [MenuItem(MenuBase + "MediaPipe")]
     static void SetMediaPipe()  => SetSource(MotionSource.MediaPipe);
 
+    [MenuItem(MenuBase + "OAK-D")]
+    static void SetOakD()       => SetSource(MotionSource.OakD);
+
     [MenuItem(MenuBase + "Clear (use inspector values)")]
     static void ClearOverride()
     {
@@ -39,6 +42,7 @@ public static class MotionSourceMenuItems
     [MenuItem(MenuBase + "Kinect",    true)] static bool VKinect()    => Validate(MotionSource.Kinect);
     [MenuItem(MenuBase + "Captury",   true)] static bool VCaptury()   => Validate(MotionSource.Captury);
     [MenuItem(MenuBase + "MediaPipe", true)] static bool VMediaPipe() => Validate(MotionSource.MediaPipe);
+    [MenuItem(MenuBase + "OAK-D",     true)] static bool VOakD()      => Validate(MotionSource.OakD);
 
     static bool Validate(MotionSource source)
     {
