@@ -25,7 +25,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     #region Configuration
 
     [Header("Configuration")]
-    [SerializeField] private MotionTrackingConfiguration config;
+    [SerializeField] public MotionTrackingConfiguration config;
     [SerializeField] private bool dontDestroyOnLoad = true;
     [SerializeField] private bool enableDebugLogging = true;
 
