@@ -409,13 +409,6 @@ public class TorsoTrackingModule : MotionTrackingModule
         ApplySquatState(ref state, jointDepth);
     }
 
-    private static Plane? GetFloorPlane()
-    {
-        var src = MotionTrackingOrchestrator.Instance as IRoomFrameSource;
-        if (src == null || !src.HasRoomFrame) return null;
-        return src.CurrentFrame?.floorPlane;
-    }
-
     private void ApplySquatState(ref CapturyInputState state, float depth)
     {
         state.squatDepth = depth;
