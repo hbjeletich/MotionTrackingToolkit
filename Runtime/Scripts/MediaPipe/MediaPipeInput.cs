@@ -6,6 +6,22 @@ using System.Threading;
 using UnityEngine;
 
 /// <summary>
+/// Status the Python sender reports back to Unity over the same UDP channel as pose
+/// data. Values MUST stay in sync with the STATUS_* codes in sender.py.
+/// </summary>
+public enum MediaPipeSenderStatus
+{
+    Starting       = 0,   // sender launched, about to open the camera
+    DeviceOpening  = 1,   // attempting to open the OAK-D (may be retrying)
+    Running        = 2,   // camera open, streaming pose data
+    DeviceNotFound = 10,  // no OAK-D detected
+    DeviceBusy     = 11,  // OAK-D already claimed by another instance
+    ModelError     = 12,  // pose model missing / failed to load
+    RuntimeError   = 13,  // other pipeline failure
+    Stopping       = 20,  // clean shutdown in progress
+}
+
+/// <summary>
 /// Receives MediaPipe pose landmarks from the Python sender over UDP.
 /// Runs a background listener thread and exposes the latest landmark data
 /// for MediaPipeMotionTrackingManager to consume on the main thread.
@@ -47,6 +63,23 @@ public class MediaPipeInput : MonoBehaviour
     private int _imageHeight;
     private bool _hasIntrinsics = false;
     private string _deviceSerial = "";
+
+    // sender status (packet type 3) — written by listener thread, dispatched on main thread
+    private const int PacketTypeStatus = 3;
+    private int _statusCode = -1;
+    private string _statusMessage = "";
+    private volatile bool _statusDirty = false;
+
+    /// <summary>Latest status reported by the sender (main-thread readable).</summary>
+    public MediaPipeSenderStatus LastStatus { get; private set; } = MediaPipeSenderStatus.Starting;
+    public string LastStatusMessage { get; private set; } = "";
+    public bool HasStatus { get; private set; } = false;
+
+    /// <summary>
+    /// Raised on the main thread whenever the sender reports a new status — subscribe to
+    /// drive UI (e.g. show an error + Retry button). Safe to touch Unity objects here.
+    /// </summary>
+    public event Action<MediaPipeSenderStatus, string> OnSenderStatus;
 
     // thread safety
     private readonly object dataLock = new object();
@@ -132,6 +165,31 @@ public class MediaPipeInput : MonoBehaviour
         StopListening();
     }
 
+    void Update()
+    {
+        // Dispatch sender-status changes on the main thread (the listener thread only sets
+        // the fields + dirty flag; Unity objects can't be touched off the main thread).
+        if (!_statusDirty) return;
+
+        int code;
+        string msg;
+        lock (dataLock)
+        {
+            code = _statusCode;
+            msg = _statusMessage;
+            _statusDirty = false;
+        }
+
+        LastStatus = (MediaPipeSenderStatus)code;
+        LastStatusMessage = msg;
+        HasStatus = true;
+
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeInput: sender status {LastStatus} — {msg}");
+
+        OnSenderStatus?.Invoke(LastStatus, msg);
+    }
+
     private void StartListening()
     {
         if (isListening) return;
@@ -200,6 +258,19 @@ public class MediaPipeInput : MonoBehaviour
         }
     }
 
+    private void ParseStatusPacket(byte[] data)
+    {
+        int code = BitConverter.ToInt32(data, 4);
+        string msg = data.Length > 8 ? Encoding.UTF8.GetString(data, 8, data.Length - 8) : "";
+
+        lock (dataLock)
+        {
+            _statusCode = code;
+            _statusMessage = msg;
+            _statusDirty = true;   // main-thread Update() picks this up and fires the event
+        }
+    }
+
     private void ParseIntrinsicsPacket(byte[] data)
     {
         // Layout: <iffffii16s>  (little-endian, 44 bytes)
@@ -238,6 +309,15 @@ public class MediaPipeInput : MonoBehaviour
     private void ParsePacket(byte[] data)
     {
         if (data.Length == 44) { ParseIntrinsicsPacket(data); return; }
+
+        // status packet (type 3): [int32 type=3][int32 code][utf8 message]. Always well
+        // under a real pose packet (>=552 bytes), and a pose packet's first 4 bytes are a
+        // float timestamp — never a small int like 3 — so this discriminator is unambiguous.
+        if (data.Length >= 8 && data.Length < 552 && BitConverter.ToInt32(data, 0) == PacketTypeStatus)
+        {
+            ParseStatusPacket(data);
+            return;
+        }
 
         // minimum size: timestamp(4) + count(4) + mode(4) + hipAnchor(12) = 24 header bytes
         if (data.Length < 24) return;

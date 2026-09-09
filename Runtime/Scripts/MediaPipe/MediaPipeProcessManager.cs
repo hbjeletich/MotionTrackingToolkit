@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Sockets;
+using System.Text;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -19,6 +21,12 @@ public class MediaPipeProcessManager : MonoBehaviour
     [SerializeField] private bool autoRestart = true;
     [SerializeField] private float restartDelay = 2.0f;
     [SerializeField] private int maxRestartAttempts = 5;
+    [Tooltip("UDP port Unity sends control commands (STOP) to. Must match the sender's " +
+        "--control-port (defaults to port + 1 on both sides).")]
+    [SerializeField] private int controlPort = 7001;
+    [Tooltip("How long to wait for the sender to shut down gracefully — releasing the OAK-D — " +
+        "after a STOP, before falling back to a hard kill.")]
+    [SerializeField] private int gracefulStopTimeoutMs = 2500;
 
     [Header("Debug")]
     [SerializeField] private bool enableDebugLogging = true;
@@ -79,7 +87,7 @@ public class MediaPipeProcessManager : MonoBehaviour
             return;
         }
 
-        string arguments = $"--port {port} --model {model}";
+        string arguments = $"--port {port} --control-port {controlPort} --model {model}";
         if (showPreview) arguments += " --show";
 
         if (enableDebugLogging)
@@ -119,6 +127,28 @@ public class MediaPipeProcessManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Sends a "STOP" command to the sender's control channel (UDP, localhost) so it can
+    /// break its loop and release the camera in its own cleanup. Best-effort — a failure
+    /// here just means we fall back to the hard kill below.
+    /// </summary>
+    private void SendStopCommand()
+    {
+        try
+        {
+            using (var client = new UdpClient())
+            {
+                byte[] payload = Encoding.UTF8.GetBytes("STOP");
+                client.Send(payload, payload.Length, "127.0.0.1", controlPort);
+            }
+            if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Sent STOP to sender (control port {controlPort}).");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"MediaPipeProcessManager: Failed to send STOP — {e.Message}");
+        }
+    }
+
     private void KillSender()
     {
         if (senderProcess == null) return;
@@ -128,14 +158,25 @@ public class MediaPipeProcessManager : MonoBehaviour
         {
             if (!senderProcess.HasExited)
             {
-                if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Killing sender (PID: {senderProcess.Id})...");
-                senderProcess.Kill();
-                senderProcess.WaitForExit(3000);
+                // Ask the sender to shut down gracefully first so its Python cleanup runs and
+                // the OAK-D is released. A hard Kill() skips that and leaves the camera claimed —
+                // the connect/disconnect loop on the next launch. Only kill if STOP is ignored.
+                SendStopCommand();
+                if (senderProcess.WaitForExit(gracefulStopTimeoutMs))
+                {
+                    if (enableDebugLogging) Debug.Log("MediaPipeProcessManager: Sender stopped gracefully (camera released).");
+                }
+                else
+                {
+                    if (enableDebugLogging) Debug.LogWarning($"MediaPipeProcessManager: Sender didn't stop within {gracefulStopTimeoutMs}ms — hard-killing (PID: {senderProcess.Id}).");
+                    senderProcess.Kill();
+                    senderProcess.WaitForExit(3000);
+                }
             }
         }
         catch (System.Exception e)
         {
-            Debug.LogWarning($"MediaPipeProcessManager: Error killing sender — {e.Message}");
+            Debug.LogWarning($"MediaPipeProcessManager: Error stopping sender — {e.Message}");
         }
         finally
         {
