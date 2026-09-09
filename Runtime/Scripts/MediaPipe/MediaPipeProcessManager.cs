@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
@@ -49,8 +50,21 @@ public class MediaPipeProcessManager : MonoBehaviour
         "after a STOP, before falling back to a hard kill.")]
     [SerializeField] private int gracefulStopTimeoutMs = 2500;
 
+    [Header("Health Overlay")]
+    [Tooltip("Spawn the SenderHealthUI overlay when a launch is attempted, so launch failures " +
+        "and device errors are visible on screen without any scene setup.")]
+    [SerializeField] private bool spawnHealthOverlay = true;
+
     [Header("Debug")]
     [SerializeField] private bool enableDebugLogging = true;
+
+    /// <summary>
+    /// Raised on the main thread when a launch attempt fails before the sender can report
+    /// status over UDP — exe missing, Process.Start threw, the process exited immediately,
+    /// or the restart budget ran out. The string is a human-readable reason. SenderHealthUI
+    /// listens to this to show the failure on screen.
+    /// </summary>
+    public event Action<string> OnLaunchFailed;
 
     private Process senderProcess;
     private bool isShuttingDown = false;
@@ -102,8 +116,14 @@ public class MediaPipeProcessManager : MonoBehaviour
         }
         else if (restartCount >= maxRestartAttempts)
         {
-            Debug.LogError($"MediaPipeProcessManager: Max restart attempts ({maxRestartAttempts}) reached.");
+            Fail($"The sender keeps stopping — gave up after {maxRestartAttempts} restart attempts.");
         }
+    }
+
+    private void Fail(string reason)
+    {
+        Debug.LogError($"MediaPipeProcessManager: {reason}");
+        OnLaunchFailed?.Invoke(reason);
     }
 
     private string SenderPathFor(MotionSource source) => source switch
@@ -124,11 +144,13 @@ public class MediaPipeProcessManager : MonoBehaviour
     private void StartSender(MotionSource source)
     {
         launchedSource = source;
+        if (spawnHealthOverlay) SenderHealthUI.EnsureExists();
+
         string exePath = Path.Combine(Application.streamingAssetsPath, SenderPathFor(source));
 
         if (!File.Exists(exePath))
         {
-            Debug.LogError($"MediaPipeProcessManager: Sender exe not found at: {exePath}");
+            Fail($"Sender program not found:\n{exePath}");
             return;
         }
 
@@ -152,7 +174,7 @@ public class MediaPipeProcessManager : MonoBehaviour
 
             if (senderProcess == null || senderProcess.HasExited)
             {
-                Debug.LogError("MediaPipeProcessManager: Failed to start sender process.");
+                Fail("The sender process exited immediately after launch.");
                 return;
             }
 
@@ -167,7 +189,7 @@ public class MediaPipeProcessManager : MonoBehaviour
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"MediaPipeProcessManager: Failed to start sender — {e.Message}");
+            Fail($"Couldn’t start the sender: {e.Message}");
         }
     }
 
