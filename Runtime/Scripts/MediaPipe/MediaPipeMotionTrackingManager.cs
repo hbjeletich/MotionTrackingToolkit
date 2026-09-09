@@ -43,6 +43,20 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
              "MediaPipe's world X axis is camera-right, which is the subject's left.")]
     [SerializeField] private bool flipX = true;
 
+    public bool FlipX
+    {
+        get => flipX;
+        set => flipX = value;
+    }
+
+    public bool ToggleFlipX()
+    {
+        flipX = !flipX;
+        if (enableDebugLogging)
+            Debug.Log($"MediaPipeMotionTrackingManager: flipX -> {flipX}");
+        return flipX;
+    }
+
     [Header("Calibration")]
     [Tooltip("If set and a matching saved calibration exists, it loads on startup instead of running " +
              "a live calibration. Leave blank to always calibrate live.")]
