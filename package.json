@@ -5,7 +5,8 @@
   "description": "Unity motion tracking toolkit supporting Captury, Kinect, and MediaPipe via Input System, with torso, foot, arm, head, and balance tracking, squat/gait analysis, room calibration, and motion recording",
   "unity": "2020.3",
   "dependencies": {
-    "com.unity.inputsystem": "1.4.0"
+    "com.unity.inputsystem": "1.4.0",
+    "com.unity.ugui": "1.0.0"
   },
   "keywords": [
     "motion capture",
