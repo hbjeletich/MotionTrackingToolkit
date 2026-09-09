@@ -12,5 +12,7 @@ public enum MotionSource
     Custom,       // user sets joint names manually (any skeleton)
     Captury,      // CapturyLive default skeleton naming
     Kinect,       // Kinect via Windows.Kinect plugin
-    MediaPipe     // MediaPipe pose landmarks via Python UDP sender
+    MediaPipe,    // MediaPipe pose landmarks via Python UDP sender (webcam)
+    OakD          // MediaPipe pose landmarks lifted through OAK-D stereo depth — same wire
+                  // protocol and joint names as MediaPipe, see OakDMotionTrackingManager
 }

@@ -57,6 +57,7 @@ public class HeadModuleConfiguration : ModuleConfiguration
                 neckJointName = "Neck";
                 break;
 
+            case MotionSource.OakD:
             case MotionSource.MediaPipe:
                 headJointName = "Head";
                 neckJointName = "Neck";

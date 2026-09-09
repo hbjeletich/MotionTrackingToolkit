@@ -81,6 +81,7 @@ public class TorsoModuleConfiguration : ModuleConfiguration
                 rightKneeJointName = "KneeRight";
                 break;
 
+            case MotionSource.OakD:
             case MotionSource.MediaPipe:
                 pelvisJointName = "Hips";
                 spineJointName = "Spine4";

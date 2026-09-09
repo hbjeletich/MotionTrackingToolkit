@@ -218,5 +218,16 @@ public abstract class MotionTrackingModule : MonoBehaviour
         return angle;
     }
 
+    // Room-calibrated floor plane, if the player has walked through room setup.
+    // Measuring against this instead of raw joint Y makes height-based thresholds
+    // robust to camera tilt/mounting height, since it uses the room frame instead of
+    // however the camera happens to be pointed.
+    protected static Plane? GetFloorPlane()
+    {
+        var src = MotionTrackingOrchestrator.Instance as IRoomFrameSource;
+        if (src == null || !src.HasRoomFrame) return null;
+        return src.CurrentFrame?.floorPlane;
+    }
+
     #endregion
 }

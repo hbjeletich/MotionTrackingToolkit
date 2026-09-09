@@ -54,6 +54,7 @@ public class ArmModuleConfiguration : ModuleConfiguration
                 rightShoulderJointName = "ShoulderRight";
                 break;
 
+            case MotionSource.OakD:
             case MotionSource.MediaPipe:
                 leftHandJointName = "LeftHand";
                 rightHandJointName = "RightHand";

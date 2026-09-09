@@ -3,7 +3,7 @@ using UnityEngine;
 using CapturyToolkit.Kinect;
 
 /// <summary>
-/// Single entry point for switching between Captury, Kinect, and MediaPipe at edit time.
+/// Single entry point for switching between Captury, Kinect, MediaPipe, and OAK-D at edit time.
 /// Set activeSource in the inspector — the matching child manager activates and the others
 /// deactivate. Works with OnValidate so changes take effect immediately in the editor.
 ///
@@ -11,7 +11,8 @@ using CapturyToolkit.Kinect;
 ///   MotionTrackingOrchestrator
 ///     ├── [MotionTrackingManager]        (dontDestroyOnLoad = OFF)
 ///     ├── [KinectMotionTrackingManager]  (dontDestroyOnLoad = OFF)
-///     └── [MediaPipeMotionTrackingManager] (dontDestroyOnLoad = OFF)
+///     ├── [MediaPipeMotionTrackingManager] (dontDestroyOnLoad = OFF)
+///     └── [OakDMotionTrackingManager]    (dontDestroyOnLoad = OFF)
 ///
 /// Implements IMotionTrackingManager as a facade — other systems can hold a reference to
 /// the orchestrator without knowing which source is active.
@@ -43,6 +44,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager,
     [SerializeField] private MotionTrackingManager capturyManager;
     [SerializeField] private KinectMotionTrackingManager kinectManager;
     [SerializeField] private MediaPipeMotionTrackingManager mediaPipeManager;
+    [SerializeField] private OakDMotionTrackingManager oakDManager;
 
     // ── Static source override ────────────────────────────────────────────────
     // Set this in code (e.g. bootstrap scene) to override all Orchestrators
@@ -89,6 +91,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager,
     {
         MotionSource.Kinect    => kinectManager    != null && kinectManager.IsBodyTracked,
         MotionSource.MediaPipe => mediaPipeManager != null && mediaPipeManager.HasReceivedLandmarks,
+        MotionSource.OakD      => oakDManager      != null && oakDManager.HasReceivedLandmarks,
         MotionSource.Captury   => capturyManager   != null && capturyManager.IsSystemCalibrated,
         _                      => false
     };
@@ -97,6 +100,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager,
     {
         MotionSource.Kinect    => kinectManager    != null && kinectManager.IsCurrentTrackingReliable(),
         MotionSource.MediaPipe => mediaPipeManager != null && mediaPipeManager.IsTrackingReliable(),
+        MotionSource.OakD      => oakDManager      != null && oakDManager.IsTrackingReliable(),
         MotionSource.Captury   => capturyManager   != null && capturyManager.IsSystemCalibrated,
         _                      => false
     };
@@ -106,6 +110,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager,
         MotionSource.Captury   => capturyManager,
         MotionSource.Kinect    => kinectManager,
         MotionSource.MediaPipe => mediaPipeManager,
+        MotionSource.OakD      => oakDManager,
         _                      => null
     };
 
@@ -217,6 +222,7 @@ public class MotionTrackingOrchestrator : MonoBehaviour, IMotionTrackingManager,
         if (capturyManager   != null) capturyManager.gameObject.SetActive(activeSource == MotionSource.Captury);
         if (kinectManager    != null) kinectManager.gameObject.SetActive(activeSource == MotionSource.Kinect);
         if (mediaPipeManager != null) mediaPipeManager.gameObject.SetActive(activeSource == MotionSource.MediaPipe);
+        if (oakDManager      != null) oakDManager.gameObject.SetActive(activeSource == MotionSource.OakD);
         UpdateConfigMotionSource();
     }
 

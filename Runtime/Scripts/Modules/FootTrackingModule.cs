@@ -210,8 +210,16 @@ public class FootTrackingModule : MotionTrackingModule
         var cal = FootCalibration;
         Vector3 leftPos = leftFoot.position;
         Vector3 rightPos = rightFoot.position;
-        float leftHeight = leftPos.y - cal.groundHeight;
-        float rightHeight = rightPos.y - cal.groundHeight;
+
+        // Prefer the room-calibrated floor plane over the flat groundHeight captured
+        // during foot calibration — it stays accurate if the camera is tilted or
+        // mounted at a different height than it was during calibration.
+        var fp = GetFloorPlane();
+        float leftHeight = fp.HasValue ? fp.Value.GetDistanceToPoint(leftPos) : leftPos.y - cal.groundHeight;
+        float rightHeight = fp.HasValue ? fp.Value.GetDistanceToPoint(rightPos) : rightPos.y - cal.groundHeight;
+
+        if (DebugMode && Time.frameCount % 120 == 0)
+            Debug.Log($"FootTrackingModule: floorPlane={fp.HasValue} L={leftHeight:F3} R={rightHeight:F3}");
 
         // update data buffers
         if (IsWalkTrackingEnabled || IsGaitAnalysisEnabled)

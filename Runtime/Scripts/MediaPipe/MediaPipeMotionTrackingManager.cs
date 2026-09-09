@@ -25,7 +25,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     #region Configuration
 
     [Header("Configuration")]
-    [SerializeField] private MotionTrackingConfiguration config;
+    [SerializeField] public MotionTrackingConfiguration config;
     [SerializeField] private bool dontDestroyOnLoad = true;
     [SerializeField] private bool enableDebugLogging = true;
 
@@ -57,6 +57,17 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     [Tooltip("Room→game uniform scale. Default 1.0 = 1:1 metres.")]
     [SerializeField] private float roomScale = 1.0f;
+
+    [Header("Room Position Filtering")]
+    [Tooltip("Exponential smoothing applied to the room-space hip position each frame it updates. " +
+             "1 = no smoothing (raw, jittery). Lower = smoother but laggier. UDP landmark data has no " +
+             "smoothing upstream (unlike Kinect's SDK), so this absorbs per-frame pose-estimation noise.")]
+    [SerializeField, Range(0.05f, 1f)] private float roomPositionSmoothing = 0.25f;
+
+    [Tooltip("Seconds to keep reporting the last known room position after absolute-hip tracking drops " +
+             "for a frame, instead of immediately falling back to a different (unmapped) coordinate space. " +
+             "Avoids a visible teleport on momentary confidence blips.")]
+    [SerializeField] private float roomPositionHoldSeconds = 0.3f;
 
     #endregion
 
@@ -143,6 +154,13 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     private Vector3 _latestAbsoluteHip = Vector3.zero;
     private bool _hasAbsoluteHip = false;
 
+    // smoothed/held version of _latestAbsoluteHip, consumed by TryGetRoomPosition/SupportsRoomScale.
+    // Kept separate from _latestAbsoluteHip so calibration capture (which wants a raw, instantaneous
+    // reading) is unaffected by gameplay-facing smoothing.
+    private Vector3 _smoothedAbsoluteHip = Vector3.zero;
+    private bool _hasSmoothedAbsoluteHip = false;
+    private float _lastAbsoluteHipTime = -1f;
+
     // world key landmarks: LHip[0], RHip[1], LKnee[2], RKnee[3], LAnkle[4], RAnkle[5]
     private readonly Vector3[] _worldKeyLandmarks = new Vector3[6];
     private bool _hasWorldKeyLandmarks = false;
@@ -170,8 +188,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     #region IMotionTrackingManager
 
     public MotionTrackingConfiguration Config => config;
-    public MotionSource Source => MotionSource.MediaPipe;
-    public bool SupportsRoomScale => _hasAbsoluteHip && activeRoomCalibration != null;
+    public virtual MotionSource Source => MotionSource.MediaPipe;
+    public bool SupportsRoomScale =>
+        activeRoomCalibration != null && _hasSmoothedAbsoluteHip &&
+        (_hasAbsoluteHip || (Time.time - _lastAbsoluteHipTime) <= roomPositionHoldSeconds);
     public bool HasRoomBounds => activeRoomCalibration?.HasBoundary ?? false;
     public Vector3[] GetRoomBoundary() =>
         activeRoomCalibration?.GetGameSpaceBoundary() ?? System.Array.Empty<Vector3>();
@@ -332,6 +352,7 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
             if (_isBodyTracked)
             {
                 _isBodyTracked = false;
+                _hasSmoothedAbsoluteHip = false; // next reacquire snaps instead of gliding from a stale position
                 if (enableDebugLogging)
                     Debug.Log("MediaPipeMotionTrackingManager: Body lost — no packets received");
             }
@@ -346,6 +367,16 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
         _hasAbsoluteHip = (latestPacketMode == 1);
         _latestAbsoluteHip = latestHipAnchor;
+
+        if (_hasAbsoluteHip)
+        {
+            _smoothedAbsoluteHip = _hasSmoothedAbsoluteHip
+                ? Vector3.Lerp(_smoothedAbsoluteHip, _latestAbsoluteHip, roomPositionSmoothing)
+                : _latestAbsoluteHip;
+            _hasSmoothedAbsoluteHip = true;
+            _lastAbsoluteHipTime = Time.time;
+        }
+
         _hasWorldKeyLandmarks = mediaPipeInput.TryGetWorldKeyLandmarks(_worldKeyLandmarks);
         _hasWorldKeyAnkles    = _hasWorldKeyLandmarks && mediaPipeInput.HasWorldKeyAnkles;
 
@@ -1048,12 +1079,12 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
 
     public bool TryGetRoomPosition(out Vector3 gamePos)
     {
-        if (!_hasAbsoluteHip || activeRoomCalibration == null)
+        if (!SupportsRoomScale)
         {
             gamePos = Vector3.zero;
             return false;
         }
-        gamePos = activeRoomCalibration.GetRoomToGame().MultiplyPoint3x4(_latestAbsoluteHip);
+        gamePos = activeRoomCalibration.GetRoomToGame().MultiplyPoint3x4(_smoothedAbsoluteHip);
         return true;
     }
 
