@@ -76,6 +76,9 @@ public class MediaPipeProcessManager : MonoBehaviour
 
     private static MediaPipeProcessManager _instance;
 
+    /// <summary>The instance managing the sender process, or null if none is active.</summary>
+    public static MediaPipeProcessManager Instance => _instance;
+
     private MotionSource ActiveSource =>
         MotionTrackingOrchestrator.Instance != null ? MotionTrackingOrchestrator.Instance.Source : fallbackSource;
 
@@ -198,20 +201,29 @@ public class MediaPipeProcessManager : MonoBehaviour
     /// break its loop and release the camera in its own cleanup. Best-effort — a failure
     /// here just means we fall back to the hard kill below.
     /// </summary>
-    private void SendStopCommand()
+    private void SendStopCommand() => SendControlCommand("STOP");
+
+    /// <summary>
+    /// Turns the sender's camera preview stream on or off. Off by default, so preview frames
+    /// cost nothing outside the calibration screen that asks for them.
+    /// </summary>
+    public void SetPreviewEnabled(bool enabled) =>
+        SendControlCommand(enabled ? "PREVIEW_ON" : "PREVIEW_OFF");
+
+    private void SendControlCommand(string command)
     {
         try
         {
             using (var client = new UdpClient())
             {
-                byte[] payload = Encoding.UTF8.GetBytes("STOP");
+                byte[] payload = Encoding.UTF8.GetBytes(command);
                 client.Send(payload, payload.Length, "127.0.0.1", controlPort);
             }
-            if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Sent STOP to sender (control port {controlPort}).");
+            if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Sent {command} to sender (control port {controlPort}).");
         }
         catch (System.Exception e)
         {
-            Debug.LogWarning($"MediaPipeProcessManager: Failed to send STOP — {e.Message}");
+            Debug.LogWarning($"MediaPipeProcessManager: Failed to send {command} — {e.Message}");
         }
     }
 

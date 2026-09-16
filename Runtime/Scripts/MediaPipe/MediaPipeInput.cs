@@ -64,6 +64,19 @@ public class MediaPipeInput : MonoBehaviour
     private bool _hasIntrinsics = false;
     private string _deviceSerial = "";
 
+    // preview frames (packet type 4) — JPEG bytes arrive on the listener thread; decoding
+    // needs Texture2D.LoadImage, which is main-thread only, so Update() does the decode.
+    private const int PacketTypePreview = 4;
+    private byte[] _previewJpeg;
+    private volatile bool _previewDirty = false;
+    private Texture2D _previewTexture;
+
+    /// <summary>
+    /// Latest camera frame from the sender, or null until one arrives. Only streams while
+    /// something has asked for it via MediaPipeProcessManager.SetPreviewEnabled(true).
+    /// </summary>
+    public Texture2D PreviewTexture => _previewTexture;
+
     // sender status (packet type 3) — written by listener thread, dispatched on main thread
     private const int PacketTypeStatus = 3;
     private int _statusCode = -1;
@@ -90,6 +103,9 @@ public class MediaPipeInput : MonoBehaviour
     private volatile bool isListening = false;
 
     private static MediaPipeInput _instance;
+
+    /// <summary>The active receiver, or null if none is enabled in the scene.</summary>
+    public static MediaPipeInput Instance => _instance;
 
     // public accessors (main thread only — copies data under lock)
     public bool HasData => hasData;
@@ -167,6 +183,8 @@ public class MediaPipeInput : MonoBehaviour
 
     void Update()
     {
+        ApplyPendingPreviewFrame();
+
         // Dispatch sender-status changes on the main thread (the listener thread only sets
         // the fields + dirty flag; Unity objects can't be touched off the main thread).
         if (!_statusDirty) return;
@@ -271,6 +289,39 @@ public class MediaPipeInput : MonoBehaviour
         }
     }
 
+    private void ParsePreviewPacket(byte[] data)
+    {
+        int jpegLength = data.Length - 12;
+        if (jpegLength <= 0) return;
+
+        byte[] jpeg = new byte[jpegLength];
+        Buffer.BlockCopy(data, 12, jpeg, 0, jpegLength);
+
+        lock (dataLock)
+        {
+            _previewJpeg = jpeg;
+            _previewDirty = true;
+        }
+    }
+
+    private void ApplyPendingPreviewFrame()
+    {
+        if (!_previewDirty) return;
+
+        byte[] jpeg;
+        lock (dataLock)
+        {
+            jpeg = _previewJpeg;
+            _previewDirty = false;
+        }
+        if (jpeg == null) return;
+
+        if (_previewTexture == null)
+            _previewTexture = new Texture2D(2, 2, TextureFormat.RGB24, false);
+
+        _previewTexture.LoadImage(jpeg);   // resizes the texture to match the JPEG
+    }
+
     private void ParseIntrinsicsPacket(byte[] data)
     {
         // Layout: <iffffii16s>  (little-endian, 44 bytes)
@@ -316,6 +367,15 @@ public class MediaPipeInput : MonoBehaviour
         if (data.Length >= 8 && data.Length < 552 && BitConverter.ToInt32(data, 0) == PacketTypeStatus)
         {
             ParseStatusPacket(data);
+            return;
+        }
+
+        // preview frame (type 4): [int32 type=4][int32 w][int32 h][jpeg]. Must be tested
+        // before the pose parse below — dispatch here is length-based, and a JPEG is much
+        // larger than a pose packet, so it would otherwise be read as landmark data.
+        if (data.Length >= 12 && BitConverter.ToInt32(data, 0) == PacketTypePreview)
+        {
+            ParsePreviewPacket(data);
             return;
         }
 
