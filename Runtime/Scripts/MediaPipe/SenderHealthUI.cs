@@ -37,6 +37,20 @@ public class SenderHealthUI : MonoBehaviour
         new GameObject(nameof(SenderHealthUI)).AddComponent<SenderHealthUI>();
     }
 
+    private static bool _suppressProgressMessages;
+
+    public static bool SuppressProgressMessages
+    {
+        get => _suppressProgressMessages;
+        set
+        {
+            _suppressProgressMessages = value;
+            // Take down a progress message that's already on screen. An error stays up: the
+            // caller isn't showing that one anywhere.
+            if (value && Instance != null && !Instance._showingError) Instance.HidePanel();
+        }
+    }
+
     [Header("Sources (auto-found if left empty)")]
     [SerializeField] private MediaPipeInput input;
     [Tooltip("Used by the Retry button to restart the sender. Retry is hidden when none exists.")]
@@ -51,12 +65,13 @@ public class SenderHealthUI : MonoBehaviour
     [Tooltip("After a launch attempt, if the sender hasn't reported Running within this many " +
              "seconds, show the error prompt. Set to 0 to disable.")]
     [SerializeField] private float startupTimeout = 10f;
-    [Tooltip("Once the camera has been Running, if no pose data arrives for this many seconds, " +
-             "show the retry prompt. Set to 0 to disable.")]
+    [Tooltip("Once the camera has been Running, how long the sender process may be gone before " +
+             "the retry prompt appears. Not a pose-data timeout — see DataLost(). Set to 0 to disable.")]
     [SerializeField] private float dataTimeout = 4f;
 
     private bool _sawRunning;
     private bool _showingError;
+    private bool _showingDataLossError;
     private float _boundTime;
     private bool _subscribed;
 
@@ -133,10 +148,34 @@ public class SenderHealthUI : MonoBehaviour
                           "plugged in, then Retry.\n(Full details are in the Player log.)");
         }
 
-        // Data-loss watchdog — the sender said Running, then packets stopped arriving.
-        if (dataTimeout > 0f && input != null && _sawRunning && !_showingError
-            && input.SecondsSinceLastPacket > dataTimeout)
+        // Data-loss watchdog — the camera was Running and the feed has genuinely gone away.
+        if (dataTimeout > 0f && _sawRunning && !_showingError && DataLost())
+        {
             ShowError("Lost the camera feed. Check the connection and try again.");
+            _showingDataLossError = true;
+        }
+        // until someone presses Retry.
+        else if (_showingDataLossError && !DataLost())
+        {
+            _showingDataLossError = false;
+            HidePanel();
+        }
+    }
+
+    /// <summary>
+    /// Whether the feed is actually gone — as opposed to nobody standing in front of it.
+    /// </summary>
+    private bool DataLost()
+    {
+        if (processManager == null || !processManager.HasAttemptedLaunch) return false;
+
+        // The sender died — crashed, or exited after the device dropped off the bus.
+        if (!processManager.IsProcessRunning) return true;
+
+        return input != null
+            && processManager.PreviewEnabled
+            && input.HasPreviewFrame
+            && input.SecondsSinceLastPreviewFrame > dataTimeout;
     }
 
     // ── Status handling ──────────────────────────────────────────────────────
@@ -174,6 +213,7 @@ public class SenderHealthUI : MonoBehaviour
     private void ShowInfo(string msg)
     {
         _showingError = false;
+        if (_suppressProgressMessages) return;
         if (messageText != null) messageText.text = msg;
         if (retryButton != null) retryButton.gameObject.SetActive(false);
         SetPanelVisible(true);
@@ -182,6 +222,7 @@ public class SenderHealthUI : MonoBehaviour
     private void ShowError(string msg)
     {
         _showingError = true;
+        _showingDataLossError = false;   // set by the data-loss watchdog itself, after this call
         if (messageText != null) messageText.text = msg;
         // Only offer Retry if we actually own a process we can restart.
         if (retryButton != null) retryButton.gameObject.SetActive(processManager != null);
@@ -191,6 +232,7 @@ public class SenderHealthUI : MonoBehaviour
     private void HidePanel()
     {
         _showingError = false;
+        _showingDataLossError = false;
         SetPanelVisible(false);
     }
 
@@ -198,6 +240,7 @@ public class SenderHealthUI : MonoBehaviour
     {
         _sawRunning = false;
         _showingError = false;
+        _showingDataLossError = false;
         _boundTime = Time.unscaledTime;   // restart the startup watchdog
         SetPanelVisible(false);
         if (processManager != null) processManager.RestartSender();

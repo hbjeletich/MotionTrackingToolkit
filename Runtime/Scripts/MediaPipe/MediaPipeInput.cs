@@ -70,6 +70,7 @@ public class MediaPipeInput : MonoBehaviour
     private byte[] _previewJpeg;
     private volatile bool _previewDirty = false;
     private Texture2D _previewTexture;
+    private long _lastPreviewTicks = 0; // written from listener thread via Interlocked
 
     /// <summary>
     /// Latest camera frame from the sender, or null until one arrives. Only streams while
@@ -112,6 +113,27 @@ public class MediaPipeInput : MonoBehaviour
     public float LatestTimestamp => latestTimestamp;
     public float SecondsSinceLastPacket => _lastPacketTicks == 0 ? float.MaxValue
         : (float)((DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastPacketTicks)) / (double)TimeSpan.TicksPerSecond);
+
+    /// <summary>
+    /// Time since the last preview frame, or float.MaxValue if none has ever arrived.
+    ///
+    /// <para>Preview frames are emitted <b>before</b> the sender's pose-detection early-out,
+    /// so a recent one proves the camera is opened and streaming even while
+    /// <see cref="SecondsSinceLastPacket"/> grows because nobody is in frame. That's the
+    /// difference between "I can see the room but not you" and "the feed is gone" — but only
+    /// while the stream is actually on (see MediaPipeProcessManager.SetPreviewEnabled).</para>
+    /// </summary>
+    public float SecondsSinceLastPreviewFrame => _lastPreviewTicks == 0 ? float.MaxValue
+        : (float)((DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastPreviewTicks)) / (double)TimeSpan.TicksPerSecond);
+
+    /// <summary>Whether any preview frame has arrived since the stream was last started.</summary>
+    public bool HasPreviewFrame => Interlocked.Read(ref _lastPreviewTicks) != 0;
+
+    /// <summary>
+    /// Forgets the preview timing, so a stream that's just been switched on isn't judged against
+    /// frames from the previous one. Called by MediaPipeProcessManager as it starts/stops the stream.
+    /// </summary>
+    public void ResetPreviewClock() => Interlocked.Exchange(ref _lastPreviewTicks, 0);
 
     public bool HasIntrinsics => _hasIntrinsics;
     public int ImageWidth => _imageWidth;
@@ -216,6 +238,10 @@ public class MediaPipeInput : MonoBehaviour
         {
             udpClient = new UdpClient(listenPort);
             udpClient.Client.ReceiveTimeout = 1000; // 1s timeout so thread can check isListening
+            // Windows defaults this to 8KB, which a preview frame (8–15KB of JPEG, capped at
+            // 60KB) doesn't fit in — the kernel drops the datagram outright and the feed comes
+            // through as stutter or nothing. Pose packets are ~550 bytes and never cared.
+            udpClient.Client.ReceiveBufferSize = 1 << 18; // 256KB
         }
         catch (Exception e)
         {
@@ -296,6 +322,8 @@ public class MediaPipeInput : MonoBehaviour
 
         byte[] jpeg = new byte[jpegLength];
         Buffer.BlockCopy(data, 12, jpeg, 0, jpegLength);
+
+        Interlocked.Exchange(ref _lastPreviewTicks, DateTime.UtcNow.Ticks);
 
         lock (dataLock)
         {
@@ -441,6 +469,12 @@ public class MediaPipeInput : MonoBehaviour
 
     void OnDestroy()
     {
+        if (_previewTexture != null)
+        {
+            Destroy(_previewTexture);   // built with new Texture2D(), so nothing else frees it
+            _previewTexture = null;
+        }
+
         if (_instance != this) return;
         _instance = null;
         StopListening();

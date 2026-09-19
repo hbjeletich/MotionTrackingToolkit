@@ -74,6 +74,12 @@ public class MediaPipeProcessManager : MonoBehaviour
 
     public bool IsProcessRunning => senderProcess != null && !senderProcess.HasExited;
 
+    /// <summary>
+    /// Whether we've ever tried to launch a sender. False in development mode, where the sender
+    /// is started by hand and IsProcessRunning would report a process we never owned as missing.
+    /// </summary>
+    public bool HasAttemptedLaunch { get; private set; }
+
     private static MediaPipeProcessManager _instance;
 
     /// <summary>The instance managing the sender process, or null if none is active.</summary>
@@ -147,6 +153,11 @@ public class MediaPipeProcessManager : MonoBehaviour
     private void StartSender(MotionSource source)
     {
         launchedSource = source;
+        HasAttemptedLaunch = true;
+        // A fresh sender starts with its preview off, so whoever wants it has to ask again —
+        // and its frame clock starts over with it.
+        PreviewEnabled = false;
+        if (MediaPipeInput.Instance != null) MediaPipeInput.Instance.ResetPreviewClock();
         if (spawnHealthOverlay) SenderHealthUI.EnsureExists();
 
         string exePath = Path.Combine(Application.streamingAssetsPath, SenderPathFor(source));
@@ -207,8 +218,21 @@ public class MediaPipeProcessManager : MonoBehaviour
     /// Turns the sender's camera preview stream on or off. Off by default, so preview frames
     /// cost nothing outside the calibration screen that asks for them.
     /// </summary>
-    public void SetPreviewEnabled(bool enabled) =>
+    public void SetPreviewEnabled(bool enabled)
+    {
+        // Switching off invalidates the frame clock: whoever turns the stream back on later
+        // mustn't be told it's stalled on the strength of frames from the last time it ran.
+        if (!enabled && PreviewEnabled && MediaPipeInput.Instance != null)
+            MediaPipeInput.Instance.ResetPreviewClock();
+
+        PreviewEnabled = enabled;
         SendControlCommand(enabled ? "PREVIEW_ON" : "PREVIEW_OFF");
+    }
+
+    /// <summary>Whether we've asked the sender for preview frames (fire-and-forget — it's our
+    /// intent, not an acknowledgement). SenderHealthUI uses this to know when the absence of
+    /// preview frames is meaningful.</summary>
+    public bool PreviewEnabled { get; private set; }
 
     private void SendControlCommand(string command)
     {
