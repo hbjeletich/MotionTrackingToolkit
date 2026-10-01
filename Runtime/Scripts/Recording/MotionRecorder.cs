@@ -196,6 +196,9 @@ public class MotionRecorder : MonoBehaviour
         recordingMetadata["Scene"] = SceneManager.GetActiveScene().name;
         recordingMetadata["TrackingSource"] = trackingManager.Source.ToString();
         recordingMetadata["MappedJointCount"] = mappedJointCount.ToString();
+        // the F9 global sensitivity knob rescales gains and thresholds across every module,
+        // so a recording is only interpretable alongside the value that was in force
+        recordingMetadata["GlobalSensitivity"] = MotionTrackingTuning.GlobalSensitivity.ToString("F2");
 
         isRecording = true;
         lastFrameTime = Time.time;

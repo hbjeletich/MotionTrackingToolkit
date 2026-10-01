@@ -65,10 +65,13 @@ public class BalanceTrackingModule : MotionTrackingModule
     public bool IsCoMTracked => BalanceConfig?.isCoMTracked ?? true;
     public bool IsSwayTracked => BalanceConfig?.isSwayTracked ?? true;
     public bool IsStabilityTracked => BalanceConfig?.isStabilityTracked ?? true;
+    // NOT scaled: nothing reads this — isSwaying uses a hardcoded base-of-support ratio instead
     public float SwayThreshold => BalanceConfig?.swayThreshold ?? 0.1f;
-    public float StabilityThreshold => BalanceConfig?.stabilityThreshold ?? 0.05f;
+    // compared against raw CoM velocity. dividing it means "stable" is claimed less readily,
+    // i.e. the same direction as every other threshold here: more responsive to movement.
+    public float StabilityThreshold => MotionTrackingTuning.ScaleThreshold(BalanceConfig?.stabilityThreshold ?? 0.05f);
     public int CoMHistoryFrames => BalanceConfig?.comHistoryFrames ?? 180;
-    public float MinLiftHeight => BalanceConfig?.minLiftHeight ?? 0.05f;
+    public float MinLiftHeight => MotionTrackingTuning.ScaleThreshold(BalanceConfig?.minLiftHeight ?? 0.05f);
 
     #endregion
 

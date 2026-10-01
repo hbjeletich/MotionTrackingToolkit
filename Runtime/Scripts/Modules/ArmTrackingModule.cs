@@ -45,8 +45,9 @@ public class ArmTrackingModule : MotionTrackingModule
     public bool IsHandPositionTracked => ArmConfig?.isHandPositionTracked ?? true;
     public bool IsHandRaiseTracked => ArmConfig?.isHandRaiseTracked ?? true;
     public bool UseRelativeHandPosition => ArmConfig?.useRelativeHandPosition ?? true;
-    public float HandRaiseThreshold => ArmConfig?.handRaiseThreshold ?? 0.3f;
-    public float HandRaiseMinHeight => ArmConfig?.handRaiseMinHeight ?? 0.1f;
+    // both compared against raw hand-vs-shoulder heights, so both take the global scaling
+    public float HandRaiseThreshold => MotionTrackingTuning.ScaleThreshold(ArmConfig?.handRaiseThreshold ?? 0.3f);
+    public float HandRaiseMinHeight => MotionTrackingTuning.ScaleThreshold(ArmConfig?.handRaiseMinHeight ?? 0.1f);
 
     #endregion
 

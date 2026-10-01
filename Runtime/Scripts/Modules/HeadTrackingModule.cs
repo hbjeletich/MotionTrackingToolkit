@@ -48,10 +48,12 @@ public class HeadTrackingModule : MotionTrackingModule
     public bool IsHeadRotationTracked => HeadConfig?.isHeadRotationTracked ?? true;
     public bool IsDirectionDetectionEnabled => HeadConfig?.isHeadDirectionEnabled ?? true;
     public bool UseRelativeHeadPosition => HeadConfig?.useRelativeHeadPosition ?? true;
-    public float HeadUpThreshold => HeadConfig?.headUpThreshold ?? 15f;
-    public float HeadDownThreshold => HeadConfig?.headDownThreshold ?? 15f;
-    public float HeadLeftThreshold => HeadConfig?.headLeftThreshold ?? 20f;
-    public float HeadRightThreshold => HeadConfig?.headRightThreshold ?? 20f;
+    // angles in degrees, compared against the raw relative head rotation (UpdateHeadDirection
+    // gets the unscaled vector; only state.headRotation is gain-scaled), so these scale.
+    public float HeadUpThreshold => MotionTrackingTuning.ScaleThreshold(HeadConfig?.headUpThreshold ?? 15f);
+    public float HeadDownThreshold => MotionTrackingTuning.ScaleThreshold(HeadConfig?.headDownThreshold ?? 15f);
+    public float HeadLeftThreshold => MotionTrackingTuning.ScaleThreshold(HeadConfig?.headLeftThreshold ?? 20f);
+    public float HeadRightThreshold => MotionTrackingTuning.ScaleThreshold(HeadConfig?.headRightThreshold ?? 20f);
 
     #endregion
 

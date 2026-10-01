@@ -94,17 +94,24 @@ public class FootTrackingModule : MotionTrackingModule
     public bool IsHipAbductionTracked => FootConfig?.isHipAbductionTracked ?? true;
     public bool IsFootPositionTracked => FootConfig?.isFootPositionTracked ?? true;
     public bool UseRelativeFootPosition => FootConfig?.useRelativeFootPosition ?? true;
-    public float FootRaiseThreshold => FootConfig?.footRaiseThreshold ?? 0.1f;
-    public float MinAbductionDistance => FootConfig?.minAbductionDistance ?? 0.2f;
-    public float MinLiftHeight => FootConfig?.minLiftHeight ?? 0.05f;
+    // distances in metres, all compared against raw joint measurements, so all three scale
+    public float FootRaiseThreshold => MotionTrackingTuning.ScaleThreshold(FootConfig?.footRaiseThreshold ?? 0.1f);
+    public float MinAbductionDistance => MotionTrackingTuning.ScaleThreshold(FootConfig?.minAbductionDistance ?? 0.2f);
+    public float MinLiftHeight => MotionTrackingTuning.ScaleThreshold(FootConfig?.minLiftHeight ?? 0.05f);
 
     public bool IsWalkTrackingEnabled => FootConfig?.enableWalkTracking ?? false;
-    public float WalkSpeedThreshold => FootConfig?.walkSpeedThreshold ?? 0.3f;
+    // both speeds scale by the same factor, which preserves the walkStop < walkSpeed ordering
+    // that FootModuleConfiguration validates. dividing walkStop makes a detected walk persist
+    // a little longer, matching the easier start.
+    public float WalkSpeedThreshold => MotionTrackingTuning.ScaleThreshold(FootConfig?.walkSpeedThreshold ?? 0.3f);
+    // NOT scaled: a duration in seconds, not a movement magnitude
     public float MinimumWalkDuration => FootConfig?.minimumWalkDuration ?? 2.0f;
-    public float WalkStopThreshold => FootConfig?.walkStopThreshold ?? 0.1f;
+    public float WalkStopThreshold => MotionTrackingTuning.ScaleThreshold(FootConfig?.walkStopThreshold ?? 0.1f);
 
     public bool IsGaitAnalysisEnabled => FootConfig?.enableGaitAnalysis ?? false;
     public int MinimumCyclesForAnalysis => FootConfig?.minimumCyclesForAnalysis ?? 3;
+    // NOT scaled: gait plausibility windows in seconds — scaling these would corrupt the
+    // gait metrics rather than change difficulty
     public float MaxReasonableStepTime => FootConfig?.maxReasonableStepTime ?? 2.0f;
     public float MinReasonableStepTime => FootConfig?.minReasonableStepTime ?? 0.3f;
     public int PositionHistoryFrames => FootConfig?.positionHistoryFrames ?? 300;

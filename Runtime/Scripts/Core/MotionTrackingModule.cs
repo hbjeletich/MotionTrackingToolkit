@@ -34,7 +34,8 @@ public abstract class MotionTrackingModule : MonoBehaviour
 
     // pull from the module's own config
     public bool IsEnabled => GetModuleConfig()?.enabled ?? false;
-    public float Sensitivity => GetModuleConfig()?.sensitivity ?? 1.0f;
+    // gain, so the global knob multiplies. see MotionTrackingTuning.
+    public float Sensitivity => MotionTrackingTuning.ScaleGain(GetModuleConfig()?.sensitivity ?? 1.0f);
     public bool DebugMode => GetModuleConfig()?.debugMode ?? false;
 
     #endregion

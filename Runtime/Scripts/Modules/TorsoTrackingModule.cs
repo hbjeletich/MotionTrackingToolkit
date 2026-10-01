@@ -58,11 +58,18 @@ public class TorsoTrackingModule : MotionTrackingModule
     public bool IsShiftTracked => TorsoConfig?.isShiftTracked ?? false;
     public bool IsBendTracked => TorsoConfig?.isBendTracked ?? false;
     public bool IsSquatTracked => TorsoConfig?.isSquatTracked ?? false;
+    // NOT scaled — these two are compared against `shiftAmount`, which UpdateWeightShiftRelative
+    // has ALREADY multiplied by Sensitivity. The global knob therefore already reaches weight
+    // shift through the gain; scaling here too would apply it twice (quadratically).
     public float WeightShiftThreshold => TorsoConfig?.weightShiftThreshold ?? 0.15f;
     public float NeutralZoneWidth => TorsoConfig?.neutralZoneWidth ?? 0.05f;
-    public float BentOverAngleThreshold => TorsoConfig?.bentOverAngleThreshold ?? 30f;
+    // compared against the raw relative rotation / raw squat depth, so these two do scale
+    public float BentOverAngleThreshold => MotionTrackingTuning.ScaleThreshold(TorsoConfig?.bentOverAngleThreshold ?? 30f);
+    // NOT scaled: a ratio used to tell torso-only movement from whole-body movement
     public float WholeBodyMovementThreshold => TorsoConfig?.wholeBodyMovementThreshold ?? 3f;
-    public float SquatThreshold => TorsoConfig?.squatThreshold ?? 0.12f;
+    public float SquatThreshold => MotionTrackingTuning.ScaleThreshold(TorsoConfig?.squatThreshold ?? 0.12f);
+    // NOT scaled: the three below are correctness guards (is the player walking? is the
+    // landmark trustworthy? is a squat swallowing the shift?), not difficulty dials
     public float SquatWalkingSpeedThreshold => TorsoConfig?.squatWalkingSpeedThreshold ?? 0.5f;
     public float SquatMinLandmarkConfidence => TorsoConfig?.squatMinLandmarkConfidence ?? 0.5f;
     public float SquatSuppressesShiftAt => TorsoConfig?.squatSuppressesShiftAt ?? 0.08f;
