@@ -3,6 +3,17 @@ using UnityEngine.InputSystem.LowLevel;
 using System.Collections.Generic;
 using System.Linq;
 
+/// <summary>
+/// Balance tracking: center of mass (CoM) compared with the base of support (BoS) under the feet.
+///   - CoM: weighted average of trunk, forearms, and lower legs, using body-segment mass fractions
+///     (trunk 0.497, forearm 0.016, lower leg 0.0465).
+///   - BoS: midpoint between the toes when both feet are down, or the standing toe (0.1 m wide) on one foot.
+///   - Sway: the CoM's offset from the BoS center on the floor (lateral = X, anterior-posterior = Z).
+///   - Stable: CoM velocity below StabilityThreshold AND CoM within 40% (two feet) or 60% (one foot)
+///     of the BoS width from its center.
+/// Foot contact here uses the ground height from calibration, not the room floor plane that
+/// FootTrackingModule uses.
+/// </summary>
 public class BalanceTrackingModule : MotionTrackingModule
 {
     #region Calibration Data

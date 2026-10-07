@@ -2,10 +2,16 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
+/// <summary>
+/// A reusable tracking setup: which modules are on, their thresholds, and their joint names.
+/// Typically one asset per game, so each game tunes its own exercises. Assign it to a manager or to
+/// MotionTrackingOrchestrator. It can be swapped at runtime with LoadConfiguration/SwapConfiguration.
+/// </summary>
 [CreateAssetMenu(fileName = "MotionConfig", menuName = "Motion Tracking/Configuration")]
 public class MotionTrackingConfiguration : ScriptableObject
 {
     [Header("Configuration Info")]
+    [Tooltip("Display name, used in logs and debug UI.")]
     public string configurationName = "Default";
 
     [TextArea(2, 4)]
@@ -16,9 +22,11 @@ public class MotionTrackingConfiguration : ScriptableObject
     public MotionSource motionSource = MotionSource.Custom;
 
     [Header("System Settings")]
+    [Tooltip("Seconds to wait after the skeleton appears before taking the neutral-pose calibration, so the player has time to stand still.")]
     public float calibrationDelay = 2.0f;
 
-    [Tooltip("Number of frames to average during calibration")]
+    // NOTE: not currently read by any manager or module. Calibration takes a single-frame snapshot.
+    [Tooltip("Not currently used: calibration takes a single-frame snapshot.")]
     public int calibrationFrames = 30;
 
     [SerializeReference]

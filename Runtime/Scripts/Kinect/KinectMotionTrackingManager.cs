@@ -10,6 +10,19 @@ using Windows.Kinect;
 namespace CapturyToolkit.Kinect
 {
 
+/// <summary>
+/// Single-player manager for Kinect v2 through the Windows.Kinect plugin's BodySourceManager.
+/// Same lifecycle and calibration order as MotionTrackingManager (see its summary).
+///
+/// Kinect-specific parts:
+///   - Body selection: Closest or FirstFound when several people are in view.
+///   - Joint proxies: one Transform per Kinect joint (named by KinectJointMapper), moved each frame.
+///     Optional exponential smoothing; Inferred joints can be accepted or skipped.
+///   - IsCurrentTrackingReliable: at least 6 of 8 key torso/leg joints fully Tracked.
+///   - Room calibration and boundary walking (IBoundaryWalkable). KNOWN ISSUE: room calibration is
+///     unfinished across the toolkit; see IBoundaryWalkable.
+/// Supported, but less recently tested than the MediaPipe/OAK-D sources.
+/// </summary>
 public class KinectMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource
 {
     #region Inspector Settings

@@ -4,18 +4,20 @@ using UnityEngine;
 public class ArmModuleConfiguration : ModuleConfiguration
 {
     [Header("Hand Position")]
+    [Tooltip("Report leftHandPosition/rightHandPosition.")]
     public bool isHandPositionTracked = true;
 
     [Tooltip("Use relative positions from calibration vs absolute world positions")]
     public bool useRelativeHandPosition = true;
 
     [Header("Hand Raise Detection")]
+    [Tooltip("Track leftHandRaised/rightHandRaised. Both conditions below must be true.")]
     public bool isHandRaiseTracked = true;
 
-    [Tooltip("Height above shoulder required to trigger hand raised")]
+    [Tooltip("Height (m) the hand must be above its own shoulder.")]
     public float handRaiseThreshold = 0.3f;
 
-    [Tooltip("Minimum height gain from neutral position")]
+    [Tooltip("How much higher (m) the hand must be than it was at calibration. Stops a high resting hand from counting.")]
     public float handRaiseMinHeight = 0.1f;
 
     [Header("Joint Names")]

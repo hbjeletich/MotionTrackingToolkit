@@ -14,6 +14,9 @@ public class BalanceModuleConfiguration : ModuleConfiguration
     public bool isStabilityTracked = true;
 
     [Header("Thresholds")]
+    // NOTE: not read anywhere. isSwaying compares sway to a fixed fraction of the base of support
+    // instead (BalanceTrackingModule.UpdateSwayRelativeToFeet).
+    [Tooltip("Not currently used. isSwaying uses a fixed fraction of the base of support (60% of half-width with both feet down, 80% on one foot).")]
     public float swayThreshold = 0.1f;
 
     [Tooltip("CoM velocity threshold (m/s) — below this is considered stable")]
@@ -22,7 +25,7 @@ public class BalanceModuleConfiguration : ModuleConfiguration
     [Tooltip("Frames of CoM history to keep (180 = ~3 seconds at 60fps)")]
     public int comHistoryFrames = 180;
 
-    [Tooltip("Minimum foot lift height for contact detection (shared with FootModule)")]
+    [Tooltip("Foot-contact height (m): a toe below half this height above the calibrated ground counts as touching the ground. Same idea as the Foot module, but a separate value.")]
     public float minLiftHeight = 0.05f;
 
     [Header("Joint Names")]

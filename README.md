@@ -1,13 +1,13 @@
 # Motion Tracking Toolkit
 
-Unity package for motion capture tracking using Unity's Input System. Provides modular tracking for torso, feet, arms, and head with walk detection, gait analysis, squat detection, and balance tracking. Supports three interchangeable motion sources — **Captury**, **Kinect**, and **MediaPipe** — behind a single `MotionTrackingOrchestrator` facade, plus room-scale calibration and motion recording with C3D export.
+Unity package for motion capture tracking using Unity's Input System. Provides modular tracking for torso, feet, arms, and head with walk detection, gait analysis, squat detection, and balance tracking. Supports four interchangeable motion sources — **Captury**, **Kinect**, **MediaPipe** (webcam), and **OAK-D** (depth camera + MediaPipe) — behind a single `MotionTrackingOrchestrator` facade, plus room-scale calibration and motion recording with C3D export.
 
 ---
 
 ## Features
 
 - **Modular Design** - Enable/disable tracking modules independently
-- **Multi-Source Tracking** - Swap between Captury, Kinect, and MediaPipe at edit time or runtime via `MotionTrackingOrchestrator`, without changing any downstream code
+- **Multi-Source Tracking** - Swap between Captury, Kinect, MediaPipe, and OAK-D at edit time or runtime via `MotionTrackingOrchestrator`, without changing any downstream code
 - **Input System Integration** - Access tracking data through Unity's Input System
 - **Torso Tracking** - Weight shift detection, bent over detection
 - **Squat Detection** - Normalized squat depth, walking-gait suppression, landmark-confidence gating (MediaPipe)
@@ -30,7 +30,7 @@ Unity package for motion capture tracking using Unity's Input System. Provides m
 
 This package includes the **Captury Unity Plugin** (MIT License) in `/Runtime/ThirdParty/Captury/` and the **Unity Input System**.
 
-If you plan to use the Kinect or MediaPipe sources instead of (or alongside) Captury, see [Multi-Source Tracking](#multi-source-tracking) for their additional dependencies.
+If you plan to use the Kinect, MediaPipe, or OAK-D sources instead of (or alongside) Captury, see [Multi-Source Tracking](#multi-source-tracking) for their additional dependencies.
 
 ### Install via Package Manager
 
@@ -73,7 +73,7 @@ If you're doing multiplayer, the components are slightly different:
 | `CapturyNetworkPlugin` | Captury Plugin | Connects to CapturyLive |
 | `MultiplayerTrackingManager` | This Package | Main tracking manager, handles input device registration |
 
-> If you need to support Kinect and/or MediaPipe alongside (or instead of) Captury, use `MotionTrackingOrchestrator` in place of `MotionTrackingManager` — see [Multi-Source Tracking](#multi-source-tracking). The rest of this Quick Start assumes Captury only.
+> If you need to support Kinect, MediaPipe, or OAK-D alongside (or instead of) Captury, use `MotionTrackingOrchestrator` in place of `MotionTrackingManager` — see [Multi-Source Tracking](#multi-source-tracking). The rest of this Quick Start assumes Captury only.
 
 ### 2. Configure Captury Connection
 
@@ -400,13 +400,13 @@ Configure joint names in your configuration asset to match your skeleton. You ca
 | Torso | Left Knee *(squat detection only)* | `LeftLeg` |
 | Torso | Right Knee *(squat detection only)* | `RightLeg` |
 
-Defaults above are for Captury. Kinect and MediaPipe use their own default joint names (e.g. Kinect's pelvis is `SpineBase`) — `ApplyJointDefaults` fills these in automatically when you set a configuration's motion source, and `MotionTrackingOrchestrator` keeps the config's source in sync with whichever manager is active.
+Defaults above are for Captury. Kinect and MediaPipe/OAK-D use their own default joint names (e.g. Kinect's pelvis is `SpineBase`) — `ApplyJointDefaults` fills these in automatically when you set a configuration's motion source, and `MotionTrackingOrchestrator` keeps the config's source in sync with whichever manager is active.
 
 ---
 
 ## Multi-Source Tracking
 
-The toolkit ships three interchangeable `IMotionTrackingManager` implementations — Captury (`MotionTrackingManager`), Kinect (`KinectMotionTrackingManager`), and MediaPipe (`MediaPipeMotionTrackingManager`) — plus `MotionTrackingOrchestrator`, a facade that activates exactly one of them and exposes a single, source-agnostic API to the rest of your game. All tracking modules, the Input System actions, room calibration, and `MotionRecorder` work unchanged regardless of which source is active.
+The toolkit ships four interchangeable `IMotionTrackingManager` implementations — Captury (`MotionTrackingManager`), Kinect (`KinectMotionTrackingManager`), MediaPipe (`MediaPipeMotionTrackingManager`), and OAK-D (`OakDMotionTrackingManager`, a subclass of the MediaPipe manager that uses the same wire protocol) — plus `MotionTrackingOrchestrator`, a facade that activates exactly one of them and exposes a single, source-agnostic API to the rest of your game. All tracking modules, the Input System actions, room calibration, and `MotionRecorder` work unchanged regardless of which source is active.
 
 ### Setup
 
@@ -415,8 +415,10 @@ The toolkit ships three interchangeable `IMotionTrackingManager` implementations
    MotionTrackingOrchestrator
      ├── MotionTrackingManager           (Captury)
      ├── KinectMotionTrackingManager     (Kinect)
-     └── MediaPipeMotionTrackingManager  (MediaPipe)
+     ├── MediaPipeMotionTrackingManager  (MediaPipe webcam)
+     └── OakDMotionTrackingManager       (OAK-D)
    ```
+   `Runtime/Orchestrator.prefab` is set up this way already.
 2. Set **Active Source** in the inspector, and assign the same `MotionTrackingConfiguration` you'd use for a single-source setup — the orchestrator keeps `config.motionSource` in sync with the active manager and applies joint defaults automatically.
 3. Only the active manager's GameObject is enabled; the others are deactivated but stay in the hierarchy so you can switch later.
 
@@ -434,7 +436,10 @@ The toolkit ships three interchangeable `IMotionTrackingManager` implementations
 |--------|------------------------|
 | Captury | Captury Unity Plugin (included), `CapturyNetworkPlugin` connected to CapturyLive |
 | Kinect | `Windows.Kinect` plugin and a `BodySourceManager` (from the Kinect view/plugin), Windows + Kinect sensor |
-| MediaPipe | `mediapipe_sender.py` running alongside Unity, streaming pose landmarks over UDP to a `MediaPipeInput` component |
+| MediaPipe | The webcam sender build (`MediaPipeSender.exe`) in `StreamingAssets/Python/MediaPipe/`, plus `MediaPipeInput` and `MediaPipeProcessManager` in the scene |
+| OAK-D | The OAK-D sender build (`oak_d_mediapipe.exe`) in `StreamingAssets/Python/Oak-D/`, plus `MediaPipeInput` and `MediaPipeProcessManager`; an OAK-D (Lite or Pro) on USB 3 |
+
+Both Python senders live in the separate **[MediaPipePython](https://github.com/hbjeletich/MediaPipePython)** repo, which covers building them and the UDP protocol. `MediaPipeProcessManager` launches the right .exe for the active source and shuts it down cleanly on quit. With **Development Mode** on, it launches nothing, so you can run the sender from source yourself (`python -m mediapipe_sender.oak_d_sender --show`). `SenderHealthUI` shows the sender's status messages, such as "no camera found" or "device busy", on screen.
 
 ---
 
@@ -472,11 +477,12 @@ Set `defaultRoomCalibrationName` on a manager to auto-load a saved calibration o
 
 ## Requirements
 
-- Unity 2020.3 or later
-- Unity Input System 1.4.0 or later
+- Unity 2023.2 (developed and tested on 2023.2.18f1). Older versions are untested; the code uses `FindFirstObjectByType`, which requires at least 2021.3.18 / 2022.2.
+- Unity Input System 1.7.0 (the version used in development)
+- TextMeshPro (referenced by `SenderHealthUI`)
 - Captury Unity Plugin (included)
 - Windows.Kinect plugin (only if using the Kinect source)
-- `mediapipe_sender.py` + a `MediaPipeInput` UDP receiver (only if using the MediaPipe source)
+- The built Python senders from [MediaPipePython](https://github.com/hbjeletich/MediaPipePython) in `StreamingAssets/Python/` (only if using the MediaPipe or OAK-D sources). Windows only.
 
 ---
 
@@ -510,3 +516,12 @@ This package includes the **Captury Unity Plugin**:
 - Added room calibration and boundary walking (`IBoundaryWalkable`, `RoomCalibrationStore`) for room-scale sources
 - Added squat detection to the Torso module, with walking-gait suppression and MediaPipe landmark-confidence gating
 - Added `MotionRecorder`: full-fidelity JSON session recording plus native `.c3d` export via a vendored c3d4sharp writer
+
+### Unreleased (since 2.0.0)
+- Added the OAK-D source (`OakDMotionTrackingManager`, `MotionSource.OakD`)
+- `MediaPipeProcessManager` picks the webcam or OAK-D sender for the active source, stops it gracefully on quit (`STOP` on the control port before killing), and reports launch failures
+- Added `SenderHealthUI`: an on-screen overlay for sender status (starting, device busy, not found, running)
+- Added a camera preview stream from the OAK-D sender for framing on the calibration screen
+- Height-based thresholds use the room-calibrated floor plane when one is available
+- Added `MotionTrackingTuning`: a global sensitivity multiplier (scales gains up and thresholds down), persisted in PlayerPrefs and stamped into recordings
+- Removed the old in-package copy of the Python sender; it now lives in the MediaPipePython repo

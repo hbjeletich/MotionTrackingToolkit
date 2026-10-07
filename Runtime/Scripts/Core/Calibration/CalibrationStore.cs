@@ -1,6 +1,9 @@
 using System.IO;
 using UnityEngine;
 
+// Saves and loads module calibrations (CalibrationBundle: one JSON entry per module type) at
+// Application.persistentDataPath/Calibrations/<name>.json. Used to reuse one known-good calibration
+// across scenes or sessions instead of calibrating again on every load.
 public static class CalibrationStore
 {
     private const string SubFolder = "Calibrations";

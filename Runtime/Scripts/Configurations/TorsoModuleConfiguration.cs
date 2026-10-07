@@ -4,30 +4,33 @@ using UnityEngine;
 public class TorsoModuleConfiguration : ModuleConfiguration
 {
     [Header("Weight Shift")]
+    [Tooltip("Track left/right weight shift: the sideways change in the spine-to-pelvis offset since calibration (leaning the upper body over one hip).")]
     public bool isShiftTracked = true;
 
-    [Tooltip("How far center of mass must shift to trigger weight shift")]
+    [Tooltip("Sideways spine-vs-pelvis movement (m, after sensitivity) that maps to a full ±1 on the analog weightShiftX value. Does NOT gate the left/right booleans; neutralZoneWidth does.")]
     public float weightShiftThreshold = 0.15f;
 
-    [Tooltip("Width of neutral zone to prevent fluttering")]
+    [Tooltip("Sideways spine-vs-pelvis movement (m, after sensitivity) past which weightShiftLeft/Right turn on, and inside which they turn back off. Raise it if shifts trigger too easily.")]
     public float neutralZoneWidth = 0.05f;
 
-    [Tooltip("Ratio threshold to ignore whole-body movement vs torso-only movement")]
+    [Tooltip("Shift is ignored when the spine has moved sideways more than this many times as far as the pelvis since calibration (compares absolute X movement of each joint).")]
     public float wholeBodyMovementThreshold = 3f;
 
     [Tooltip("Squat depth (0-1) above which weight-shift detection is suppressed, so bending into a squat isn't misread as a lateral weight shift.")]
     public float squatSuppressesShiftAt = 0.08f;
 
     [Header("Bend Detection")]
+    [Tooltip("Track bending forward (isBentOver / isUpright) from pelvis pitch.")]
     public bool isBendTracked = true;
 
-    [Tooltip("Degrees of forward bend to trigger bent over detection")]
+    [Tooltip("Degrees of pelvis pitch (X rotation) away from the calibrated pose that counts as bent over.")]
     public float bentOverAngleThreshold = 30f;
 
     [Header("Squat Detection")]
+    [Tooltip("Track squats (squatDepth / isSquatting). Adds the two knee joints to this module's required joints. MediaPipe/OAK-D use the knee angle from world landmarks; other sources use how far the hips drop toward the knees.")]
     public bool isSquatTracked = false;
 
-    [Tooltip("Normalized squat depth (0–1) that triggers isSquatting. 0.25 = roughly a quarter squat.")]
+    [Tooltip("squatDepth above which isSquatting turns on. Units depend on the source. MediaPipe/OAK-D (knee angle): 0–1, where 1 = 80° more knee bend than at calibration, so 0.15 ≈ 12°. Captury/Kinect (joint path): metres the hips have dropped toward the knees, so 0.15 = 15 cm.")]
     public float squatThreshold = 0.15f;
 
     [Tooltip("Horizontal pelvis speed (m/s) above which squat detection is suppressed — filters out knee flexion from walking gait rather than a stationary squat.")]

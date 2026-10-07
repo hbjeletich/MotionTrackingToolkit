@@ -6,6 +6,26 @@ using Captury;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 
+/// <summary>
+/// Single-player manager for Captury (CapturyLive, reached through CapturyNetworkPlugin).
+///
+/// All the single-player managers (this one, KinectMotionTrackingManager, MediaPipeMotionTrackingManager)
+/// follow the same lifecycle:
+///   1. Start: load the config, create one module per enabled ModuleConfiguration, and register the
+///      CapturyInput Input System device.
+///   2. When a skeleton first appears: resolve joints, then calibrate using the first of these that works:
+///        a) CalibrationHooks.OnSkeletonReadyForCalibration: a game-side guard can supply a calibration
+///           the player already did this session;
+///        b) defaultCalibrationName, loaded from disk (CalibrationStore);
+///        c) a live calibration after config.calibrationDelay.
+///      Reusing one known-good calibration is deliberate. Calibrating again on every scene load would
+///      capture whatever pose the player happens to be in (for example mid-squat from "squat to start").
+///   3. Every frame after that: each module fills one fresh CapturyInputState, which is queued to the device.
+///
+/// DESIGN NOTE: the managers each re-implement this lifecycle (singleton, module creation, config
+/// swap, calibration save/load) instead of sharing a base class, so a fix in one usually has to be
+/// copied to the others. Pulling this into a shared base class is the main suggested refactor.
+/// </summary>
 public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager
 {
     [Header("Configuration")]
@@ -317,6 +337,7 @@ public class MotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICal
 
     #region Tracking Updates
 
+    // A fresh state every frame, so a disabled or uncalibrated module leaves its controls at 0.
     private void UpdateAllModules()
     {
         CapturyInputState state = new CapturyInputState();

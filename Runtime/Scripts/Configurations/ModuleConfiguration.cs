@@ -2,6 +2,11 @@ using UnityEngine;
 
 // base for per-module configuration, each tracking module extends this
 // instances are stored in MotionTrackingConfiguration's module list
+//
+// Every distance in a module config is in metres and every angle in degrees, measured on the
+// skeleton the active manager produces. At runtime, modules read thresholds through
+// MotionTrackingTuning, so the global sensitivity knob can retune every config at once without
+// editing the assets (see MotionTrackingTuning for which values scale and which don't).
 
 // to create a new module:
 //   1. extend ModuleConfiguration with your settings
@@ -12,11 +17,14 @@ using UnityEngine;
 public abstract class ModuleConfiguration
 {
     [Header("Base Module Settings")]
+    [Tooltip("Turn this module on. Disabled modules aren't created, and their joints aren't required.")]
     public bool enabled = false;
 
     [Range(0.1f, 3.0f)]
+    [Tooltip("Gain on this module's continuous outputs (positions, sway, weight-shift amount). Also multiplied by the global MotionTrackingTuning sensitivity. Does not change boolean detection thresholds.")]
     public float sensitivity = 1.0f;
 
+    [Tooltip("Log this module's detections and calibration values to the Console.")]
     public bool debugMode = false;
 
     // returns the joint names that this module tracks

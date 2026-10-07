@@ -1,6 +1,12 @@
 using UnityEngine;
 using UnityEngine.InputSystem.LowLevel;
 
+/// <summary>
+/// Hand tracking measured relative to each shoulder, so leaning or stepping doesn't count as arm movement.
+/// Hand position = hand-to-shoulder offset minus the calibrated offset.
+/// A hand counts as raised when it's HandRaiseThreshold above its shoulder AND HandRaiseMinHeight
+/// higher than it was at calibration.
+/// </summary>
 public class ArmTrackingModule : MotionTrackingModule
 {
     #region Calibration Data

@@ -2,6 +2,11 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Adapter used by MultiplayerMotionTrackingManager. Every module gets one of these as its "manager",
+/// and it forwards joint lookups and calibration to one specific skeleton. That lets the same module
+/// code run once per player without knowing about multiplayer.
+/// </summary>
 public class SkeletonMotionTrackingContext : IMotionTrackingManager
 {
     private MultiplayerMotionTrackingManager multiplayerManager;

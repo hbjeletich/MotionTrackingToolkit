@@ -4,15 +4,18 @@ using UnityEngine;
 public class HeadModuleConfiguration : ModuleConfiguration
 {
     [Header("Head Position")]
+    [Tooltip("Report headPosition: the head-to-neck offset relative to calibration (or absolute, see below).")]
     public bool isHeadPositionTracked = true;
 
     [Tooltip("Use relative positions from calibration vs absolute world positions")]
     public bool useRelativeHeadPosition = true;
 
     [Header("Head Rotation")]
+    [Tooltip("Report headRotation: head rotation relative to the neck, minus the calibrated offset (degrees).")]
     public bool isHeadRotationTracked = true;
 
     [Header("Direction Detection")]
+    [Tooltip("Track headUp/Down/Left/Right. Up/down use the relative Z rotation (roll axis on these skeletons), and left/right use the relative Y rotation (yaw).")]
     public bool isHeadDirectionEnabled = true;
 
     [Tooltip("Degrees of upward tilt required to trigger head up detection")]

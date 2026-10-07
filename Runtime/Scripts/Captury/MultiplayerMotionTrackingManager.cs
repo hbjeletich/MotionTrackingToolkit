@@ -6,6 +6,18 @@ using Captury;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 
+/// <summary>
+/// Captury-only manager for 1–maxPlayers skeletons at once.
+///
+/// Each skeleton CapturyLive finds gets its own SkeletonTrackingData: a player number, its own set of
+/// modules, its own calibration, and its own CapturyInput device tagged with the usage "Player{N}".
+/// Modules are handed a SkeletonMotionTrackingContext instead of this manager, so their joint lookups
+/// resolve to their own skeleton without the modules knowing about multiplayer.
+/// Games find their player's device by usage (see the README's multiplayer example). Each player
+/// script needs its own instance of an InputActionAsset.
+///
+/// Not supported for Kinect/MediaPipe/OAK-D, and room-scale methods are stubs here.
+/// </summary>
 public class MultiplayerMotionTrackingManager : MonoBehaviour, IMotionTrackingManager
 {
     #region Configuration and Settings

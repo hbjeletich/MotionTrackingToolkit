@@ -4,30 +4,34 @@ using UnityEngine;
 public class FootModuleConfiguration : ModuleConfiguration
 {
     [Header("Foot Raise")]
+    [Tooltip("Track footRaised/footLowered: true when either foot is higher than the other. It does not report which foot.")]
     public bool isFootRaiseTracked = true;
 
-    [Tooltip("Minimum height difference between feet to trigger foot raise")]
+    [Tooltip("Height difference (m) between the two feet that counts as a raised foot.")]
     public float footRaiseThreshold = 0.1f;
 
     [Header("Hip Abduction")]
+    [Tooltip("Track left/right hip abduction: one foot lifted AND the feet farther apart than at calibration. Known to be weak. See the KNOWN ISSUE note in FootTrackingModule.UpdateHipAbduction.")]
     public bool isHipAbductionTracked = true;
 
-    [Tooltip("Additional distance feet must spread beyond normal stance")]
+    [Tooltip("How much farther apart (m, measured horizontally) the feet must be than at calibration to count as abduction.")]
     public float minAbductionDistance = 0.2f;
 
-    [Tooltip("Minimum foot lift height required for abduction detection")]
+    [Tooltip("Height (m) above the floor a foot must be lifted to count toward abduction. Gait step detection treats a foot below half this height as on the ground.")]
     public float minLiftHeight = 0.05f;
 
     [Header("Foot Position")]
+    [Tooltip("Report leftFootPosition/rightFootPosition.")]
     public bool isFootPositionTracked = true;
 
     [Tooltip("Use relative positions from calibration vs absolute world positions")]
     public bool useRelativeFootPosition = true;
 
     [Header("Walk Detection")]
+    [Tooltip("Detect walking in place or across the room from spine speed (Idle → InitiatingWalk → Walking → Stopping). Adds the walk spine joint to the required joints.")]
     public bool enableWalkTracking = false;
 
-    [Tooltip("Minimum movement speed (m/s) to consider walking")]
+    [Tooltip("Spine speed (m/s) that starts a walk. Speed is measured over the last 30 Unity frames, which assumes 60 fps.")]
     public float walkSpeedThreshold = 0.3f;
 
     [Tooltip("How long movement must continue to confirm walking")]
@@ -37,6 +41,7 @@ public class FootModuleConfiguration : ModuleConfiguration
     public float walkStopThreshold = 0.1f;
 
     [Header("Gait Analysis")]
+    [Tooltip("Detect individual steps (foot touches down) and compute step time, cadence, step-time asymmetry, and gait consistency.")]
     public bool enableGaitAnalysis = false;
 
     [Tooltip("Need this many complete cycles before analysis is reliable")]
@@ -77,6 +82,9 @@ public class FootModuleConfiguration : ModuleConfiguration
         return obj.AddComponent<FootTrackingModule>();
     }
 
+    // NOTE: Unity only calls OnValidate on MonoBehaviours and ScriptableObjects. This is a plain
+    // [Serializable] class inside MotionTrackingConfiguration, so this never runs automatically and
+    // walkStopThreshold < walkSpeedThreshold is NOT enforced. Keep them in that order by hand.
     private void OnValidate()
     {
         if (walkStopThreshold >= walkSpeedThreshold)

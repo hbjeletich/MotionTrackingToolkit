@@ -17,8 +17,21 @@ using UnityEngine.InputSystem.LowLevel;
 /// All existing modules work unchanged.
 ///
 /// Scene setup:
-///   GameObject with MediaPipeInput + MediaPipeMotionTrackingManager
-///   Run mediapipe_sender.py alongside Unity
+///   GameObject with MediaPipeInput + MediaPipeMotionTrackingManager (or OakDMotionTrackingManager),
+///   plus MediaPipeProcessManager to launch the sender .exe. The senders are built from the
+///   MediaPipePython repo. The prefab Runtime/Orchestrator.prefab already has all of this.
+///
+/// Same lifecycle and calibration order as MotionTrackingManager (see its summary). Calibration
+/// starts on the first packet received.
+///
+/// Joint positions given to modules are always BODY-RELATIVE (centered on the hips), even for
+/// room-frame packets (mode 1). See UpdateLandmarkPositions. The room-space hip position is kept
+/// separately and only reaches games through TryGetRoomPosition. A consequence: module logic that
+/// depends on absolute height (like the hips dropping in a squat) doesn't work on this source,
+/// which is why TorsoTrackingModule uses the knee angle here.
+///
+/// Room calibration (IBoundaryWalkable / IRoomFrameSource / ITrackableRegionProvider) is implemented
+/// but unfinished. See IBoundaryWalkable.
 /// </summary>
 public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource, ITrackableRegionProvider
 {
@@ -76,6 +89,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
     [Tooltip("Exponential smoothing applied to the room-space hip position each frame it updates. " +
              "1 = no smoothing (raw, jittery). Lower = smoother but laggier. UDP landmark data has no " +
              "smoothing upstream (unlike Kinect's SDK), so this absorbs per-frame pose-estimation noise.")]
+    // NOTE: untuned since the OAK-D depth filtering work in the Python sender (Sep 2026) brought
+    // standing jitter down to ~25 mm. 0.25 was chosen for noisier data and may now add unneeded lag.
     [SerializeField, Range(0.05f, 1f)] private float roomPositionSmoothing = 0.25f;
 
     [Tooltip("Seconds to keep reporting the last known room position after absolute-hip tracking drops " +
@@ -598,6 +613,10 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         }
     }
 
+    // MediaPipe has no hips/spine/neck/head joints, so they're built from the landmarks to match the
+    // BVH-style names the module configs expect (Hips, Spine, Spine1, Spine4, Neck, Head). The fractions
+    // are approximations. Only the hip and head rotations are computed, because only Torso
+    // (bend) and Head (direction) read rotations.
     private void ComputeVirtualJoints()
     {
         Vector3 leftHip = landmarkTransforms[(int)PoseLandmark.LeftHip].localPosition;
@@ -968,6 +987,8 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
         return reliable >= MinReliableKeyLandmarks;
     }
 
+    // NOTE: the warning below predates the OAK-D source. The OAK-D sender also sends mode-1
+    // (room-frame) packets, so "multi-camera" really means "a source that sends room-frame positions".
     public void CalibrateRoom()
     {
         if (!_hasAbsoluteHip)

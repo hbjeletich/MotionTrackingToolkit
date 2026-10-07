@@ -1,6 +1,8 @@
 using System.IO;
 using UnityEngine;
 
+// Saves and loads room calibrations at Application.persistentDataPath/RoomCalibrations/<name>.json.
+// Part of the unfinished room calibration system (see IBoundaryWalkable).
 public static class RoomCalibrationStore
 {
     private const string SubFolder = "RoomCalibrations";

@@ -7,6 +7,11 @@ using UnityEngine.InputSystem.Layouts;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.InputSystem.Utilities;
 
+// The Input System device and state that EVERY source writes to (Captury, Kinect, MediaPipe, OAK-D).
+// The "Captury" names come from the toolkit's origins. They were kept when other sources were added,
+// so existing games and InputActionAssets didn't have to change.
+// Each field is one control. Buttons are 0/1 floats, and the module that owns each field is
+// noted in the section comments below.
 public struct CapturyInputState : IInputStateTypeInfo
 {
     public FourCC format => new FourCC('C', 'A', 'P', 'T');

@@ -1,6 +1,14 @@
 using UnityEngine;
 using UnityEngine.InputSystem.LowLevel;
 
+/// <summary>
+/// Torso-level gestures, all measured relative to the calibrated neutral pose:
+///   - Weight shift: sideways change in the spine-to-pelvis offset (leaning over one hip).
+///     Outputs an analog weightShiftX (-1..1) plus weightShiftLeft/Right booleans.
+///   - Bent over: pelvis pitch past bentOverAngleThreshold.
+///   - Squat (opt-in): squatDepth + isSquatting. Two paths, see UpdateSquat.
+/// Squat runs first each frame so weight shift can ignore itself during a squat.
+/// </summary>
 public class TorsoTrackingModule : MotionTrackingModule
 {
     #region Calibration Data
@@ -250,6 +258,14 @@ public class TorsoTrackingModule : MotionTrackingModule
             UpdateBentOver(ref state, relativeRotation);
     }
 
+    // Weight shift. relativeMovement is how far the spine has moved sideways RELATIVE TO the pelvis
+    // since calibration, so lean counts but moving the whole body doesn't.
+    // Two things zero the shift:
+    //   - isWholeBodyMovement: the spine's absolute X movement is more than WholeBodyMovementThreshold
+    //     times the pelvis's (only checked once both have moved > 1 cm).
+    //   - a squat deeper than SquatSuppressesShiftAt, since bending down shifts the spine too.
+    // The left/right booleans latch on past ±NeutralZoneWidth and release back inside it.
+    // WeightShiftThreshold only scales the analog weightShiftX.
     private void UpdateWeightShiftRelative(ref CapturyInputState state, Vector3 pelvisMovement, Vector3 spineMovement, Vector3 relativeMovement)
     {
         float pelvisXMovement = pelvisMovement.x;
@@ -333,6 +349,24 @@ public class TorsoTrackingModule : MotionTrackingModule
         }
     }
 
+    // Squat detection has two paths, and they report squatDepth in DIFFERENT units:
+    //
+    //   1. Knee angle (MediaPipe / OAK-D). Uses the hip/knee/ankle world landmarks the Python sender
+    //      appends to each packet. Depth = knee bend beyond the calibrated angle / 80°, clamped 0–1.
+    //      It works without room calibration, which is why it's preferred for these sources.
+    //   2. Joint path (Captury / Kinect, or MediaPipe without world landmarks). Depth = metres the
+    //      hips have dropped toward the knees, measured against the room floor plane when there is one.
+    //      This worked well on Captury and Kinect. On MediaPipe, joint positions are relative to the
+    //      hips, so the hip drop isn't visible, which is why path 1 exists.
+    //
+    // Both paths zero the depth while walking (pelvis moving > SquatWalkingSpeedThreshold), since gait
+    // bends the knees too.
+    //
+    // KNOWN ISSUE: path 1 checks for MediaPipeMotionTrackingManager directly, so this module
+    // depends on one specific source. A cleaner design would expose the world key landmarks
+    // through an optional interface on the manager.
+    // KNOWN ISSUE: squatThreshold means ~0–1 on path 1 and metres on path 2, so one config value
+    // can't be correct for both kinds of source.
     private void UpdateSquat(ref CapturyInputState state, Transform pelvis)
     {
         var cal = TorsoCalibration;

@@ -3,6 +3,16 @@ using UnityEngine.InputSystem.LowLevel;
 using System.Collections.Generic;
 using System.Linq;
 
+/// <summary>
+/// Foot and leg tracking, in four layers that each depend on the one before:
+///   1. Basic: footRaised (either foot), left/right hip abduction, foot positions.
+///   2. Walk detection (opt-in): a state machine on spine speed. Idle → InitiatingWalk → Walking → Stopping.
+///   3. Gait analysis (opt-in): step events when a foot touches down, plus step time, cadence,
+///      step-time asymmetry |L−R| / mean(L,R), and consistency 1 − (std dev / mean) of recent steps.
+///   4. Output: isWalking / walkStarted / walkStopped / walkSpeed.
+/// Foot heights are measured against the room floor plane when there is one. Otherwise they use the
+/// ground height captured at calibration.
+/// </summary>
 public class FootTrackingModule : MotionTrackingModule
 {
     #region Data Structures
@@ -262,6 +272,9 @@ public class FootTrackingModule : MotionTrackingModule
             UpdateFootPositions(ref state, leftPos, rightPos);
     }
 
+    // footRaised is true when the two feet differ in height by more than FootRaiseThreshold.
+    // It's a single flag for either foot. Games that need left vs right compare
+    // leftFootPosition/rightFootPosition, or use the hip-abduction outputs.
     private void UpdateFootRaise(ref CapturyInputState state, float leftHeight, float rightHeight)
     {
         float footHeightDifference = Mathf.Abs(leftHeight - rightHeight);
@@ -288,6 +301,18 @@ public class FootTrackingModule : MotionTrackingModule
         }
     }
 
+    // Hip abduction = a foot lifted at least MinLiftHeight AND the feet at least MinAbductionDistance
+    // farther apart (horizontally) than at calibration.
+    //
+    // KNOWN ISSUE: detection is weak and is the most common tracking complaint in playtests. Likely factors:
+    //   - The spread check is one shared distance between the feet. Which side gets credit depends
+    //     only on which foot is off the ground, not on which leg actually moved outward.
+    //   - The lift requirement (MinLiftHeight, 5 cm by default) is lower than FootRaiseThreshold
+    //     (10 cm), so a sideways leg raise usually sets footRaised as well. A game that listens
+    //     for both will see both.
+    //   - Foot height and spread both depend on depth accuracy at the ankles, which is the noisiest
+    //     part of the skeleton on camera-based sources.
+    // Left as-is for now; revisit after documentation.
     private void UpdateHipAbduction(ref CapturyInputState state, Vector3 leftPos, Vector3 rightPos, float leftHeight, float rightHeight)
     {
         var cal = FootCalibration;
@@ -416,6 +441,8 @@ public class FootTrackingModule : MotionTrackingModule
         if (recentPositions.Length < 2) return 0f;
 
         Vector3 movement = recentPositions[recentPositions.Length - 1] - recentPositions[0];
+        // KNOWN ISSUE: assumes 60 fps. The real time between those 30 samples is available in
+        // timestampHistory but isn't used, so walk speed reads low at lower frame rates.
         float timeSpan = 0.5f; // 30 frames at 60fps
         return movement.magnitude / timeSpan;
     }

@@ -1,6 +1,12 @@
 using UnityEngine;
 using UnityEngine.InputSystem.LowLevel;
 
+/// <summary>
+/// Head position and rotation measured relative to the neck, then compared to the calibrated
+/// neutral, so turning the whole body doesn't count as turning the head.
+/// Directions: up/down from the relative Z rotation, left/right from the relative Y rotation.
+/// (Pitch on X let side turns trigger up/down, so Z was chosen during the Captury work.)
+/// </summary>
 public class HeadTrackingModule : MotionTrackingModule
 {
     #region Calibration Data
