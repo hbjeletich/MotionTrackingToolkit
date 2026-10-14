@@ -312,6 +312,10 @@ public class FootTrackingModule : MotionTrackingModule
     //     for both will see both.
     //   - Foot height and spread both depend on depth accuracy at the ankles, which is the noisiest
     //     part of the skeleton on camera-based sources.
+    //   - FIXED (Oct 2026): on MediaPipe/OAK-D, foot height used to be measured against a floor plane
+    //     in a different coordinate space than the hip-relative joints, so the lift check depended on
+    //     camera height vs. hip height. See ISkeletonFloorProvider. Re-test abduction after this fix
+    //     before re-tuning anything.
     // Left as-is for now; revisit after documentation.
     private void UpdateHipAbduction(ref CapturyInputState state, Vector3 leftPos, Vector3 rightPos, float leftHeight, float rightHeight)
     {

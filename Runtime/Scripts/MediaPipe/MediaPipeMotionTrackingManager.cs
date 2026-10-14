@@ -33,7 +33,7 @@ using UnityEngine.InputSystem.LowLevel;
 /// Room calibration (IBoundaryWalkable / IRoomFrameSource / ITrackableRegionProvider) is implemented
 /// but unfinished. See IBoundaryWalkable.
 /// </summary>
-public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource, ITrackableRegionProvider
+public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingManager, ICalibratableTrackingManager, IBoundaryWalkable, IRoomFrameSource, ITrackableRegionProvider, ISkeletonFloorProvider
 {
     #region Configuration
 
@@ -780,6 +780,29 @@ public class MediaPipeMotionTrackingManager : MonoBehaviour, IMotionTrackingMana
                       $"floor={cal.floorHeight:F3}m, scale={cal.scale}");
 
         OnFrameCaptured?.Invoke(CurrentFrame);
+    }
+
+    #endregion
+
+    #region ISkeletonFloorProvider
+
+    // Modules read body-relative joints (UpdateLandmarkPositions subtracts this frame's hip anchor),
+    // but the room calibration's floorHeight is in the sender's room/camera frame. Re-express the
+    // floor relative to THIS frame's hip anchor, then through the same scale, offset and parent
+    // transform the joint Transforms use, so a joint's distance to this plane is its real height
+    // off the floor. Needs room-frame packets (mode 1, e.g. OAK-D): the webcam sender's mode 0 has
+    // no absolute hip, so there's no floor to report and modules fall back to their calibrated
+    // ground height.
+    public bool TryGetSkeletonFloorPlane(out Plane floor)
+    {
+        floor = default;
+        if (activeRoomCalibration == null || latestPacketMode != 1 || skeletonRoot == null)
+            return false;
+
+        float localY = (activeRoomCalibration.floorHeight - latestHipAnchor.y) * positionScale + worldOffset.y;
+        Transform root = skeletonRoot.transform;
+        floor = new Plane(root.up, root.TransformPoint(new Vector3(0f, localY, 0f)));
+        return true;
     }
 
     #endregion

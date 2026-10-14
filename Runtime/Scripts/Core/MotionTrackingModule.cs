@@ -223,8 +223,16 @@ public abstract class MotionTrackingModule : MonoBehaviour
     // Measuring against this instead of raw joint Y makes height-based thresholds
     // robust to camera tilt/mounting height, since it uses the room frame instead of
     // however the camera happens to be pointed.
-    protected static Plane? GetFloorPlane()
+    //
+    // The plane has to be in the SAME space as the joints this module reads. A manager whose joints
+    // aren't in its room frame's space (MediaPipe/OAK-D: hip-relative joints) supplies the floor
+    // itself through ISkeletonFloorProvider. For those managers the raw room-frame plane is never
+    // used, because measuring against it gave "camera height minus hip height" instead of foot height.
+    protected Plane? GetFloorPlane()
     {
+        if (manager is ISkeletonFloorProvider provider)
+            return provider.TryGetSkeletonFloorPlane(out Plane skeletonFloor) ? skeletonFloor : (Plane?)null;
+
         var src = MotionTrackingOrchestrator.Instance as IRoomFrameSource;
         if (src == null || !src.HasRoomFrame) return null;
         return src.CurrentFrame?.floorPlane;
