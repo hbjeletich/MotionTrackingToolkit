@@ -109,7 +109,10 @@ public class TorsoTrackingModule : MotionTrackingModule
         float hipKneeRatio            = 0f;
         float neutralLeftKneeAngle    = 0f;
         float neutralRightKneeAngle   = 0f;
-        if (IsSquatTracked)
+        // The knee baseline is captured whether or not squat is tracked right now. Menus turn
+        // squat on at runtime (MotionMenuNavigator / PauseManager); without a baseline from
+        // calibration the squat check below had nothing to compare against and always read 0.
+        // Missing knee data is only worth a warning when squat is actually on.
         {
             var mpManager = manager as MediaPipeMotionTrackingManager;
 
@@ -128,8 +131,8 @@ public class TorsoTrackingModule : MotionTrackingModule
             // Priority 2: Joint path fallback (Captury/Kinect or no MediaPipe data).
             else
             {
-                Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
-                Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
+                Transform leftKnee  = GetKneeJoint(TorsoConfig.leftKneeJointName);
+                Transform rightKnee = GetKneeJoint(TorsoConfig.rightKneeJointName);
                 if (leftKnee != null && rightKnee != null)
                 {
                     Vector3 kneeCenter = (leftKnee.position + rightKnee.position) * 0.5f;
@@ -146,7 +149,7 @@ public class TorsoTrackingModule : MotionTrackingModule
                         if (DebugMode) Debug.Log($"[SQUAT CAL] Joint path — hipKneeDist={hipKneeDist:F3}m");
                     }
                 }
-                else
+                else if (IsSquatTracked)
                 {
                     Debug.LogWarning($"[SQUAT CAL] No pixel landmarks, no world landmarks, and no knee joints — squat tracking will not work.");
                 }
@@ -278,6 +281,12 @@ public class TorsoTrackingModule : MotionTrackingModule
             isWholeBodyMovement = movementRatio > WholeBodyMovementThreshold;
         }
 
+        // PLAYTEST-WATCH (Oct 2026): squat tracking is now ON in every G4G config (Mushroom
+        // Melodies, Candid Critters and Stitch by Stitch included) because squat is the select
+        // gesture everywhere. With it on, this line ignores weight shift while the knees are
+        // bent. If playtest notes say steering/panning in those games feels sticky or misses
+        // shifts, this is the first suspect: raise squatSuppressesShiftAt in that game's config
+        // or turn isSquatTracked back off there (menus force it on themselves while open).
         bool isSquattingNow = IsSquatTracked && state.squatDepth > SquatSuppressesShiftAt;
 
         float shiftAmount = relativeMovement.x * Sensitivity;
@@ -377,15 +386,19 @@ public class TorsoTrackingModule : MotionTrackingModule
         // double-support phase to cross the squat depth threshold, so suppress
         // squat detection while the pelvis is translating across the floor
         // (squats are performed roughly in place; walking is not).
+        // Unscaled time throughout: menus that select with a squat (the pause menu, a frozen end
+        // screen) run at Time.timeScale = 0, where scaled deltaTime is 0 and the smoothed depth
+        // below never moved - so a squat could never register on a paused screen.
+        float dt = Time.unscaledDeltaTime;
         float horizontalSpeed = 0f;
-        if (_hasPrevPelvisPositionForSquatGate && Time.deltaTime > 0f)
+        if (_hasPrevPelvisPositionForSquatGate && dt > 0f)
         {
             Vector3 delta = pelvis.position - _prevPelvisPositionForSquatGate;
-            horizontalSpeed = new Vector2(delta.x, delta.z).magnitude / Time.deltaTime;
+            horizontalSpeed = new Vector2(delta.x, delta.z).magnitude / dt;
         }
         _prevPelvisPositionForSquatGate = pelvis.position;
         _hasPrevPelvisPositionForSquatGate = true;
-        _smoothedPelvisHorizontalSpeed = Mathf.Lerp(_smoothedPelvisHorizontalSpeed, horizontalSpeed, Time.deltaTime * 8f);
+        _smoothedPelvisHorizontalSpeed = Mathf.Lerp(_smoothedPelvisHorizontalSpeed, horizontalSpeed, dt * 8f);
         bool isWalking = _smoothedPelvisHorizontalSpeed > SquatWalkingSpeedThreshold;
 
         // Priority 1: Knee angle from world landmarks — scale-invariant, works for all modes.
@@ -423,15 +436,15 @@ public class TorsoTrackingModule : MotionTrackingModule
             float angleDrop = ratio >= 0.6f ? maxDrop : 0f;
             if (isWalking) angleDrop = 0f;
             float rawDepth = Mathf.Clamp01(angleDrop / 80f);
-            _smoothedSquatDepth = Mathf.Lerp(_smoothedSquatDepth, rawDepth, Time.deltaTime * 8f);
+            _smoothedSquatDepth = Mathf.Lerp(_smoothedSquatDepth, rawDepth, dt * 8f);
             if (log) Debug.Log($"[SQUAT] Knee angle — neutral={cal.neutralHipKneeRatio:F1}° L={lAngle:F1}°(drop={lDrop:F1}) R={rAngle:F1}°(drop={rDrop:F1}) ratio={ratio:F2} walking={isWalking}(speed={_smoothedPelvisHorizontalSpeed:F2}) drop={angleDrop:F1}° depth={_smoothedSquatDepth:F3}");
             ApplySquatState(ref state, _smoothedSquatDepth);
             return;
         }
 
         // Priority 2: Joint path fallback (Captury/Kinect or no MediaPipe data).
-        Transform leftKnee  = GetJoint(TorsoConfig.leftKneeJointName);
-        Transform rightKnee = GetJoint(TorsoConfig.rightKneeJointName);
+        Transform leftKnee  = GetKneeJoint(TorsoConfig.leftKneeJointName);
+        Transform rightKnee = GetKneeJoint(TorsoConfig.rightKneeJointName);
         if (leftKnee == null || rightKnee == null)
         {
             if (log) Debug.Log($"[SQUAT] Joint path — knee joints null");
@@ -448,6 +461,18 @@ public class TorsoTrackingModule : MotionTrackingModule
         if (isWalking) jointDepth = 0f;
         if (log) Debug.Log($"[SQUAT] Joint path — neutral={cal.neutralHipKneeDistance:F3} current={currentDist:F3} walking={isWalking}(speed={_smoothedPelvisHorizontalSpeed:F2}) depth={jointDepth:F3} floorPlane={fp.HasValue}");
         ApplySquatState(ref state, jointDepth);
+    }
+
+    // Knees are only "required" joints while squat is tracked, so when squat is switched on at
+    // runtime they were never resolved. Fall back to asking the manager directly and cache it.
+    private Transform GetKneeJoint(string jointName)
+    {
+        if (string.IsNullOrEmpty(jointName)) return null;
+        Transform t = GetJoint(jointName);
+        if (t != null) return t;
+        t = manager?.GetJointByName(jointName);
+        if (t != null) resolvedJoints[jointName] = t;
+        return t;
     }
 
     private void ApplySquatState(ref CapturyInputState state, float depth)
