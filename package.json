@@ -1,6 +1,6 @@
 {
   "name": "com.hbjeletich.capturytoolkit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "displayName": "Motion Tracking Toolkit",
   "description": "Unity motion tracking toolkit supporting Captury, Kinect, MediaPipe, and OAK-D via Input System, with torso, foot, arm, head, and balance tracking, squat/gait analysis, room calibration, and motion recording",
   "unity": "2023.2",
