@@ -78,6 +78,20 @@ public class MediaPipeProcessManager : MonoBehaviour
     /// </summary>
     public event Action<string> OnLaunchFailed;
 
+    /// <summary>
+    /// Raised on the main thread when the sender exits without being asked to: a crash, an
+    /// error inside the sender, or something outside the game killing it. Not raised for the
+    /// stops this class makes itself (quit, scene teardown, restart). Carries the exit code and
+    /// the last few lines the sender printed, so a data log can say why it died, not just that
+    /// it did. TrackingDiagnostics in the game logs this as Tracking:SenderExited.
+    /// </summary>
+    public event Action<int, string> OnSenderExited;
+
+    // The sender's most recent output lines, filled from its stdout/stderr threads.
+    private const int RecentOutputLines = 8;
+    private readonly System.Collections.Generic.Queue<string> recentOutput = new System.Collections.Generic.Queue<string>();
+    private readonly object recentOutputLock = new object();
+
     private Process senderProcess;
     private bool isShuttingDown = false;
     private int restartCount = 0;
@@ -121,9 +135,14 @@ public class MediaPipeProcessManager : MonoBehaviour
         if (developmentMode || isShuttingDown || senderProcess == null || !senderProcess.HasExited) return;
 
         int exitCode = senderProcess.ExitCode;
-        Debug.LogWarning($"MediaPipeProcessManager: Sender exited with code {exitCode}");
+        // Lets the async stdout/stderr readers deliver whatever the sender printed last; the
+        // process is already gone, so this returns as soon as its pipes are drained.
+        try { senderProcess.WaitForExit(); } catch { }
+        string lastOutput = TakeRecentOutput();
+        Debug.LogWarning($"MediaPipeProcessManager: Sender exited with code {exitCode} (0x{exitCode:X8}). Last output: {lastOutput}");
         senderProcess.Dispose();
         senderProcess = null;
+        OnSenderExited?.Invoke(exitCode, lastOutput);
 
         if (autoRestart && (maxRestartAttempts == 0 || restartCount < maxRestartAttempts))
         {
@@ -189,22 +208,31 @@ public class MediaPipeProcessManager : MonoBehaviour
         if (enableDebugLogging)
             Debug.Log($"MediaPipeProcessManager: Starting {source} sender — {exePath} {arguments}");
 
+        lock (recentOutputLock) recentOutput.Clear();
+
         try
         {
-            senderProcess = Process.Start(new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = exePath,
                 Arguments = arguments,
                 WorkingDirectory = Path.GetDirectoryName(exePath),
                 UseShellExecute = false,
                 CreateNoWindow = !showPreview,
-                RedirectStandardOutput = enableDebugLogging,
-                RedirectStandardError = enableDebugLogging,
-            });
+                // Always captured, not just with debug logging on: the last lines are what
+                // OnSenderExited reports when the sender dies.
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            // Python block-buffers stdout into a pipe, so on a crash the last lines would never
+            // arrive. Unbuffered output gets them here before the process dies.
+            startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+            senderProcess = Process.Start(startInfo);
 
             if (senderProcess == null || senderProcess.HasExited)
             {
-                Fail("The sender process exited immediately after launch.");
+                string code = senderProcess != null ? $" (exit code {senderProcess.ExitCode})" : "";
+                Fail($"The sender process exited immediately after launch{code}.");
                 return;
             }
 
@@ -214,18 +242,46 @@ public class MediaPipeProcessManager : MonoBehaviour
             // handle to it closes, and it closes when this process dies for any reason.
             ChildProcessJob.Assign(senderProcess);
 
-            if (enableDebugLogging)
+            senderProcess.OutputDataReceived += (s, e) =>
             {
-                senderProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.Log($"[{source}Sender] {e.Data}"); };
-                senderProcess.ErrorDataReceived  += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.LogWarning($"[{source}Sender] {e.Data}"); };
-                senderProcess.BeginOutputReadLine();
-                senderProcess.BeginErrorReadLine();
-                Debug.Log($"MediaPipeProcessManager: Sender started (PID: {senderProcess.Id})");
-            }
+                if (string.IsNullOrEmpty(e.Data)) return;
+                RememberOutput(e.Data);
+                if (enableDebugLogging) Debug.Log($"[{source}Sender] {e.Data}");
+            };
+            senderProcess.ErrorDataReceived += (s, e) =>
+            {
+                if (string.IsNullOrEmpty(e.Data)) return;
+                RememberOutput(e.Data);
+                if (enableDebugLogging) Debug.LogWarning($"[{source}Sender] {e.Data}");
+            };
+            senderProcess.BeginOutputReadLine();
+            senderProcess.BeginErrorReadLine();
+            if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Sender started (PID: {senderProcess.Id})");
         }
         catch (System.Exception e)
         {
             Fail($"Couldn’t start the sender: {e.Message}");
+        }
+    }
+
+    // Called from the process's reader threads.
+    private void RememberOutput(string line)
+    {
+        if (line.Length > 300) line = line.Substring(0, 300) + "…";
+        lock (recentOutputLock)
+        {
+            recentOutput.Enqueue(line);
+            while (recentOutput.Count > RecentOutputLines) recentOutput.Dequeue();
+        }
+    }
+
+    private string TakeRecentOutput()
+    {
+        lock (recentOutputLock)
+        {
+            string joined = string.Join(" | ", recentOutput);
+            recentOutput.Clear();
+            return joined;
         }
     }
 

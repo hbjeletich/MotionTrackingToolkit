@@ -337,7 +337,7 @@ For most use cases, **direct device access is recommended** as it's more straigh
 - **Bent Over Angle** - Forward bend angle to trigger detection
 - **Whole Body Movement Threshold** - Ratio to ignore coordinated movement
 - **Squat Suppresses Shift At** - Squat depth above which weight-shift detection is suppressed, so bending into a squat isn't misread as a lateral shift
-- **Squat Detection** *(opt-in, `isSquatTracked`)* - Normalized squat depth threshold, walking-speed suppression (filters knee flexion from gait), and minimum landmark confidence (MediaPipe) before trusting the knee-angle signal; requires left/right knee joint names in addition to pelvis/spine
+- **Squat Detection** *(opt-in, `isSquatTracked`)* - Normalized squat depth threshold, walking-speed suppression (filters knee flexion from gait), and minimum landmark confidence (MediaPipe) before trusting the knee-angle signal; requires left/right knee joint names in addition to pelvis/spine. The knee baseline is captured on every calibration, so `isSquatTracked` can be switched on at runtime (e.g. only while a menu is open). Squat runs on unscaled time, so it works while `Time.timeScale` is 0.
 
 ### Foot Module
 - **Foot Raise Threshold** - Height difference to trigger foot raise
@@ -439,7 +439,7 @@ The toolkit ships four interchangeable `IMotionTrackingManager` implementations 
 | MediaPipe | The webcam sender build (`MediaPipeSender.exe`) in `StreamingAssets/Python/MediaPipe/`, plus `MediaPipeInput` and `MediaPipeProcessManager` in the scene |
 | OAK-D | The OAK-D sender build (`oak_d_mediapipe.exe`) in `StreamingAssets/Python/Oak-D/`, plus `MediaPipeInput` and `MediaPipeProcessManager`; an OAK-D (Lite or Pro) on USB 3 |
 
-Both Python senders live in the separate **[MediaPipePython](https://github.com/hbjeletich/MediaPipePython)** repo, which covers building them and the UDP protocol. `MediaPipeProcessManager` launches the right .exe for the active source and shuts it down cleanly on quit. With **Development Mode** on, it launches nothing, so you can run the sender from source yourself (`python -m mediapipe_sender.oak_d_sender --show`). `SenderHealthUI` shows the sender's status messages, such as "no camera found" or "device busy", on screen.
+Both Python senders live in the separate **[MediaPipePython](https://github.com/hbjeletich/MediaPipePython)** repo, which covers building them and the UDP protocol. `MediaPipeProcessManager` launches the right .exe for the active source and shuts it down cleanly on quit. It also kills any sender left over from an earlier run before launching (`killStaleSendersOnLaunch`), and on Windows ties the sender to Unity's process with a job object, so a crash can't leave the camera claimed. `passParentPid` additionally passes `--parent-pid` so the sender watches Unity itself; leave it off until the senders in `StreamingAssets/Python` are rebuilt from a MediaPipePython version that accepts it. With **Development Mode** on, it launches nothing, so you can run the sender from source yourself (`python -m mediapipe_sender.oak_d_sender --show`). `SenderHealthUI` shows the sender's status messages, such as "no camera found" or "device busy", on screen.
 
 ---
 
@@ -525,3 +525,5 @@ This package includes the **Captury Unity Plugin**:
 - Height-based thresholds use the room-calibrated floor plane when one is available
 - Added `MotionTrackingTuning`: a global sensitivity multiplier (scales gains up and thresholds down), persisted in PlayerPrefs and stamped into recordings
 - Removed the old in-package copy of the Python sender; it now lives in the MediaPipePython repo
+- `MediaPipeProcessManager` kills stale senders before launching and puts the sender in a Windows job object (dies with Unity, even on a crash); optional `passParentPid`
+- Torso squat: the knee baseline is captured on every calibration (so squat can be enabled at runtime), and squat timing uses unscaled time
