@@ -87,10 +87,53 @@ public class MediaPipeProcessManager : MonoBehaviour
     /// </summary>
     public event Action<int, string> OnSenderExited;
 
+    /// <summary>
+    /// Raised on the main thread each time this class stops the sender itself (quit, scene
+    /// teardown, restart, source switch). Carries why, whether the sender let go of the camera
+    /// on its own (graceful) or had to be hard-killed, how long that took in ms, and its last
+    /// output lines. A hard kill can leave the OAK-D unusable until it's power-cycled, so this
+    /// is the first thing to check when the camera won't come back on the next launch.
+    /// </summary>
+    public event Action<string, bool, int, string> OnSenderStopped;
+
+    /// <summary>Raised when a launch found and killed senders left over from an earlier run.</summary>
+    public event Action<int> OnStaleSendersKilled;
+
+    /// <summary>How the previous run (or previous Play in the editor) last stopped its sender,
+    /// e.g. "2026-11-04 19:30:12; Reason:Quit; Result:hard-killed; Took:2512ms". Read from
+    /// PlayerPrefs at startup, so it survives the app closing. Empty if never recorded.</summary>
+    public static string PreviousRunLastStop { get; private set; } = "";
+
+    /// <summary>How this run last stopped the sender (same format), or empty.</summary>
+    public string LastStop { get; private set; } = "";
+
+    /// <summary>Launch attempts this run, including automatic restarts.</summary>
+    public int LaunchCount { get; private set; }
+
+    /// <summary>Leftover senders killed before launches this run.</summary>
+    public int StaleSendersKilled { get; private set; }
+
+    /// <summary>Unexpected sender exits this run (crashes, self-stops) and the last one's code.</summary>
+    public int UnexpectedExitCount { get; private set; }
+    public int LastExitCode { get; private set; }
+
+    private const string LastStopPrefKey = "MotionTracking.LastSenderStop";
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void LoadPreviousRunLastStop()
+    {
+        // Runs once per app start and once per Play in the editor (even with domain reload
+        // off), before anything can overwrite the key.
+        PreviousRunLastStop = PlayerPrefs.GetString(LastStopPrefKey, "");
+    }
+
     // The sender's most recent output lines, filled from its stdout/stderr threads.
     private const int RecentOutputLines = 8;
     private readonly System.Collections.Generic.Queue<string> recentOutput = new System.Collections.Generic.Queue<string>();
     private readonly object recentOutputLock = new object();
+    // Counts down as stdout and stderr each reach end-of-stream, so we can wait (bounded) for
+    // a dead sender's last lines without risking a hang on WaitForExit().
+    private System.Threading.CountdownEvent openStreams;
 
     private Process senderProcess;
     private bool isShuttingDown = false;
@@ -135,13 +178,14 @@ public class MediaPipeProcessManager : MonoBehaviour
         if (developmentMode || isShuttingDown || senderProcess == null || !senderProcess.HasExited) return;
 
         int exitCode = senderProcess.ExitCode;
-        // Lets the async stdout/stderr readers deliver whatever the sender printed last; the
-        // process is already gone, so this returns as soon as its pipes are drained.
-        try { senderProcess.WaitForExit(); } catch { }
+        // Lets the async stdout/stderr readers deliver whatever the sender printed last.
+        WaitForOutputDrain(1000);
         string lastOutput = TakeRecentOutput();
         Debug.LogWarning($"MediaPipeProcessManager: Sender exited with code {exitCode} (0x{exitCode:X8}). Last output: {lastOutput}");
         senderProcess.Dispose();
         senderProcess = null;
+        UnexpectedExitCount++;
+        LastExitCode = exitCode;
         OnSenderExited?.Invoke(exitCode, lastOutput);
 
         if (autoRestart && (maxRestartAttempts == 0 || restartCount < maxRestartAttempts))
@@ -187,6 +231,7 @@ public class MediaPipeProcessManager : MonoBehaviour
     {
         launchedSource = source;
         HasAttemptedLaunch = true;
+        LaunchCount++;
         // A fresh sender starts with its preview off, so whoever wants it has to ask again —
         // and its frame clock starts over with it.
         PreviewEnabled = false;
@@ -209,6 +254,8 @@ public class MediaPipeProcessManager : MonoBehaviour
             Debug.Log($"MediaPipeProcessManager: Starting {source} sender — {exePath} {arguments}");
 
         lock (recentOutputLock) recentOutput.Clear();
+        var streams = new System.Threading.CountdownEvent(2);
+        openStreams = streams;
 
         try
         {
@@ -227,6 +274,11 @@ public class MediaPipeProcessManager : MonoBehaviour
             // Python block-buffers stdout into a pipe, so on a crash the last lines would never
             // arrive. Unbuffered output gets them here before the process dies.
             startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+            // depthai's own log level (default "warn"). "info" adds its device and USB setup
+            // lines and, if the OAK-D's firmware crashes, the path of the crash dump it saves.
+            // Those land in the last-lines tail that SenderExited / SenderStopped log.
+            if (!startInfo.EnvironmentVariables.ContainsKey("DEPTHAI_LEVEL"))
+                startInfo.EnvironmentVariables["DEPTHAI_LEVEL"] = "info";
             senderProcess = Process.Start(startInfo);
 
             if (senderProcess == null || senderProcess.HasExited)
@@ -244,13 +296,15 @@ public class MediaPipeProcessManager : MonoBehaviour
 
             senderProcess.OutputDataReceived += (s, e) =>
             {
-                if (string.IsNullOrEmpty(e.Data)) return;
+                if (e.Data == null) { SignalStreamClosed(streams); return; }
+                if (e.Data.Length == 0) return;
                 RememberOutput(e.Data);
                 if (enableDebugLogging) Debug.Log($"[{source}Sender] {e.Data}");
             };
             senderProcess.ErrorDataReceived += (s, e) =>
             {
-                if (string.IsNullOrEmpty(e.Data)) return;
+                if (e.Data == null) { SignalStreamClosed(streams); return; }
+                if (e.Data.Length == 0) return;
                 RememberOutput(e.Data);
                 if (enableDebugLogging) Debug.LogWarning($"[{source}Sender] {e.Data}");
             };
@@ -262,6 +316,16 @@ public class MediaPipeProcessManager : MonoBehaviour
         {
             Fail($"Couldn’t start the sender: {e.Message}");
         }
+    }
+
+    private static void SignalStreamClosed(System.Threading.CountdownEvent streams)
+    {
+        try { if (!streams.IsSet) streams.Signal(); } catch (InvalidOperationException) { }
+    }
+
+    private void WaitForOutputDrain(int timeoutMs)
+    {
+        try { openStreams?.Wait(timeoutMs); } catch (Exception) { }
     }
 
     // Called from the process's reader threads.
@@ -329,11 +393,14 @@ public class MediaPipeProcessManager : MonoBehaviour
         }
     }
 
-    private void KillSender()
+    private void KillSender(string reason)
     {
         if (senderProcess == null) return;
 
         isShuttingDown = true;
+        string result = "already-exited";
+        bool graceful = true;
+        var timer = Stopwatch.StartNew();
         try
         {
             if (!senderProcess.HasExited)
@@ -344,18 +411,24 @@ public class MediaPipeProcessManager : MonoBehaviour
                 SendStopCommand();
                 if (senderProcess.WaitForExit(gracefulStopTimeoutMs))
                 {
-                    if (enableDebugLogging) Debug.Log("MediaPipeProcessManager: Sender stopped gracefully (camera released).");
+                    result = "graceful";
+                    if (enableDebugLogging) Debug.Log($"MediaPipeProcessManager: Sender stopped gracefully in {timer.ElapsedMilliseconds}ms (camera released).");
                 }
                 else
                 {
-                    if (enableDebugLogging) Debug.LogWarning($"MediaPipeProcessManager: Sender didn't stop within {gracefulStopTimeoutMs}ms — hard-killing (PID: {senderProcess.Id}).");
+                    result = "hard-killed";
+                    graceful = false;
+                    Debug.LogWarning($"MediaPipeProcessManager: Sender didn't stop within {gracefulStopTimeoutMs}ms — hard-killing (PID: {senderProcess.Id}). The OAK-D may need unplugging before it works again.");
                     senderProcess.Kill();
                     senderProcess.WaitForExit(3000);
                 }
+                WaitForOutputDrain(1000);   // collect its last output lines
             }
         }
         catch (System.Exception e)
         {
+            result = "error";
+            graceful = false;
             Debug.LogWarning($"MediaPipeProcessManager: Error stopping sender — {e.Message}");
         }
         finally
@@ -363,6 +436,19 @@ public class MediaPipeProcessManager : MonoBehaviour
             senderProcess.Dispose();
             senderProcess = null;
         }
+
+        int took = (int)timer.ElapsedMilliseconds;
+        string lastOutput = TakeRecentOutput();
+        LastStop = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}; Reason:{reason}; Result:{result}; Took:{took}ms";
+        try
+        {
+            // Saved straight away: on quit this is the only record that reaches the next run.
+            PlayerPrefs.SetString(LastStopPrefKey, LastStop);
+            PlayerPrefs.Save();
+        }
+        catch (Exception e) { Debug.LogWarning($"MediaPipeProcessManager: couldn't save stop record — {e.Message}"); }
+
+        OnSenderStopped?.Invoke(reason, graceful, took, lastOutput);
     }
 
     /// <summary>
@@ -372,13 +458,28 @@ public class MediaPipeProcessManager : MonoBehaviour
     /// </summary>
     private void KillStaleSenders(string exePath)
     {
+        int killed = 0;
+        try { killed = KillStaleSendersInner(exePath); }
+        finally
+        {
+            if (killed > 0)
+            {
+                StaleSendersKilled += killed;
+                OnStaleSendersKilled?.Invoke(killed);
+            }
+        }
+    }
+
+    private int KillStaleSendersInner(string exePath)
+    {
+        int killed = 0;
         string name = Path.GetFileNameWithoutExtension(exePath);
         Process[] candidates;
         try { candidates = Process.GetProcessesByName(name); }
         catch (Exception e)
         {
             Debug.LogWarning($"MediaPipeProcessManager: Couldn't list processes to find stale senders — {e.Message}");
-            return;
+            return 0;
         }
 
         string fullExe = Path.GetFullPath(exePath);
@@ -396,6 +497,7 @@ public class MediaPipeProcessManager : MonoBehaviour
                 Debug.LogWarning($"MediaPipeProcessManager: Killing stale sender from an earlier run (PID {p.Id}).");
                 p.Kill();
                 p.WaitForExit(3000);
+                killed++;
             }
             catch (Exception e)
             {
@@ -403,19 +505,20 @@ public class MediaPipeProcessManager : MonoBehaviour
             }
             finally { p.Dispose(); }
         }
+        return killed;
     }
 
-    void OnApplicationQuit() => KillSender();
+    void OnApplicationQuit() => KillSender("Quit");
 
     void OnDestroy()
     {
         if (_instance != this) return; // duplicate — the real instance is still alive
         _instance = null;
-        KillSender();
+        KillSender("Destroyed");
     }
 
-    public void StopSender()  { autoRestart = false; KillSender(); }
-    public void RestartSender() { KillSender(); isShuttingDown = false; restartCount = 0; StartSender(ActiveSource); }
+    public void StopSender()  { autoRestart = false; KillSender("StopSender"); }
+    public void RestartSender() { KillSender("Restart"); isShuttingDown = false; restartCount = 0; StartSender(ActiveSource); }
 
     /// <summary>
     /// Called by the source-select flow: sets the camera arg (webcam sources only, pass
@@ -427,7 +530,7 @@ public class MediaPipeProcessManager : MonoBehaviour
         if (camera != null) cameraSelection = camera;
         isShuttingDown = false;
         restartCount = 0;
-        KillSender();
+        KillSender("SourceChange");
         StartSender(source);
     }
 }
