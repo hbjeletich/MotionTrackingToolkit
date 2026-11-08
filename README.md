@@ -475,6 +475,17 @@ Set `defaultRoomCalibrationName` on a manager to auto-load a saved calibration o
 3. Call `StartRecording()` / `StopRecording()` — files are written to `Application.persistentDataPath/MotionRecordings/` by default (configurable via `outputFolderName`).
 4. Check `LastConversionStatus` / `LastC3DPath` after `StopRecording()` to confirm the `.c3d` write succeeded.
 
+### When files are written
+
+The whole recording is held in memory and written once, as one JSON + `.c3d` pair named when the recording started:
+
+- on `StopRecording()`
+- on a normal quit (`Application.Quit()`, closing the window, stopping Play mode), through `OnApplicationQuit` with `OnDestroy` as a backup
+
+Nothing is written if the app crashes or is killed (e.g. from Task Manager), so that recording is lost. Note that `Application.Quit()` does nothing in the editor.
+
+**Why there are no mid-session saves:** saving after every scene change (like the G4G CSV does) was tried and dropped. Each save rebuilds the full JSON from the start of the recording, which is roughly 15–25 MB per minute of recording at 30 fps with input states on. That would add a pause of several seconds to every scene load on a long session, getting longer each time, with a real risk of running out of memory. If crash-safety becomes important, the better options are checkpointing only the `.c3d` (about 0.5 MB/min) or streaming frames to disk as they're recorded.
+
 ---
 
 ## Requirements
@@ -529,3 +540,4 @@ This package includes the **Captury Unity Plugin**:
 - Removed the old in-package copy of the Python sender; it now lives in the MediaPipePython repo
 - `MediaPipeProcessManager` kills stale senders before launching and puts the sender in a Windows job object (dies with Unity, even on a crash); optional `passParentPid`
 - Torso squat: the knee baseline is captured on every calibration (so squat can be enabled at runtime), and squat timing uses unscaled time
+- `MotionRecorder` saves explicitly on quit (`OnApplicationQuit`), names each recording when it starts, writes the real start time into the JSON, and `RecordingDuration` now counts from the start (it always read ~0)

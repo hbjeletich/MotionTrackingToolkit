@@ -74,6 +74,11 @@ public class MotionRecorder : MonoBehaviour
     private string sessionTag = "";
     private string outputDirectory;
 
+    // One file per recording, named when it starts.
+    private string currentRecordingPath = "";
+    private string recordingStartStamp = "";
+    private float recordingStartTime;
+
     private volatile string lastConversionStatus = "";
     private volatile string lastC3DPath = "";
 
@@ -82,7 +87,7 @@ public class MotionRecorder : MonoBehaviour
 
     public bool IsRecording => isRecording;
     public int FrameCount => recordedFrames?.Count ?? 0;
-    public float RecordingDuration => isRecording ? Time.time - lastFrameTime : 0f;
+    public float RecordingDuration => isRecording ? Time.time - recordingStartTime : 0f;
     public bool HasTrackingSource => trackingManager != null;
     public string LastConversionStatus => lastConversionStatus;
     public string LastC3DPath => lastC3DPath;
@@ -106,6 +111,14 @@ public class MotionRecorder : MonoBehaviour
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
 
+        if (isRecording)
+            StopRecording();
+    }
+
+    // Save on quit (the Quit button / closing the window) explicitly instead of relying on
+    // OnDestroy alone. Neither runs on a crash or a Task Manager kill.
+    private void OnApplicationQuit()
+    {
         if (isRecording)
             StopRecording();
     }
@@ -200,8 +213,14 @@ public class MotionRecorder : MonoBehaviour
         // so a recording is only interpretable alongside the value that was in force
         recordingMetadata["GlobalSensitivity"] = MotionTrackingTuning.GlobalSensitivity.ToString("F2");
 
+        recordingStartStamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        string tagPart = string.IsNullOrEmpty(sessionTag) ? "" : $"{sessionTag}_";
+        currentRecordingPath = Path.Combine(outputDirectory,
+            $"motion_recording_{tagPart}{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.json");
+
         isRecording = true;
         lastFrameTime = Time.time;
+        recordingStartTime = Time.time;
         lastConversionStatus = "";
         lastC3DPath = "";
 
@@ -326,12 +345,12 @@ public class MotionRecorder : MonoBehaviour
     {
         try
         {
-            string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            string tagPart = string.IsNullOrEmpty(sessionTag) ? "" : $"{sessionTag}_";
-            string filename = $"motion_recording_{tagPart}{timestamp}.json";
-            string filepath = Path.Combine(outputDirectory, filename);
+            string filepath = currentRecordingPath;
+            if (!Directory.Exists(outputDirectory))
+                Directory.CreateDirectory(outputDirectory);
 
             var recording = new MotionRecording();
+            recording.startTime = recordingStartStamp;
             recording.frameRate = recordingFrameRate;
             recording.frames = recordedFrames.ToArray();
             recording.endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
