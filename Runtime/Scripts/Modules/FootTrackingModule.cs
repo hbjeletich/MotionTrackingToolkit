@@ -301,8 +301,14 @@ public class FootTrackingModule : MotionTrackingModule
         }
     }
 
-    // Hip abduction = a foot lifted at least MinLiftHeight AND the feet at least MinAbductionDistance
-    // farther apart (horizontally) than at calibration.
+    // Hip abduction = one foot at least MinLiftHeight higher than the OTHER foot AND the feet at least
+    // MinAbductionDistance farther apart (horizontally) than at calibration.
+    //
+    // The lift is measured foot-against-foot (the standing foot is the reference), the same way
+    // footRaised works, so it doesn't depend on where the floor plane landed. Before Nov 2026 it was
+    // each foot's height above the floor plane, so a floor estimated too high (OAK-D logs showed
+    // standing hip height ~0.65 m instead of ~1 m) silently demanded a much bigger leg raise, and a
+    // floor estimated too low let both feet count as "lifted" while standing.
     //
     // KNOWN ISSUE: detection is weak and is the most common tracking complaint in playtests. Likely factors:
     //   - The spread check is one shared distance between the feet. Which side gets credit depends
@@ -314,8 +320,8 @@ public class FootTrackingModule : MotionTrackingModule
     //     part of the skeleton on camera-based sources.
     //   - FIXED (Oct 2026): on MediaPipe/OAK-D, foot height used to be measured against a floor plane
     //     in a different coordinate space than the hip-relative joints, so the lift check depended on
-    //     camera height vs. hip height. See ISkeletonFloorProvider. Re-test abduction after this fix
-    //     before re-tuning anything.
+    //     camera height vs. hip height. See ISkeletonFloorProvider.
+    //   - FIXED (Nov 2026): the lift check no longer uses absolute floor height at all (see above).
     // Left as-is for now; revisit after documentation.
     private void UpdateHipAbduction(ref CapturyInputState state, Vector3 leftPos, Vector3 rightPos, float leftHeight, float rightHeight)
     {
@@ -325,8 +331,11 @@ public class FootTrackingModule : MotionTrackingModule
         float currentDistance = Vector2.Distance(leftPos2D, rightPos2D);
         float abductionDistance = currentDistance - cal.defaultFootDistance;
 
-        bool leftLiftedEnough = leftHeight > MinLiftHeight;
-        bool rightLiftedEnough = rightHeight > MinLiftHeight;
+        // Floor-independent: any error in the floor plane is the same for both feet and cancels out.
+        // Only the higher foot can qualify, so the two sides can't both be on at once.
+        float liftDifference = leftHeight - rightHeight;
+        bool leftLiftedEnough = liftDifference > MinLiftHeight;
+        bool rightLiftedEnough = -liftDifference > MinLiftHeight;
         bool distanceIncreased = abductionDistance > MinAbductionDistance;
 
         bool leftAbductedNow = leftLiftedEnough && distanceIncreased;

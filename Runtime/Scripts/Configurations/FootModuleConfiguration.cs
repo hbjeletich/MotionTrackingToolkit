@@ -17,7 +17,7 @@ public class FootModuleConfiguration : ModuleConfiguration
     [Tooltip("How much farther apart (m, measured horizontally) the feet must be than at calibration to count as abduction.")]
     public float minAbductionDistance = 0.2f;
 
-    [Tooltip("Height (m) above the floor a foot must be lifted to count toward abduction. Gait step detection treats a foot below half this height as on the ground.")]
+    [Tooltip("Height (m) a foot must be lifted ABOVE THE OTHER FOOT to count toward abduction (floor-independent). Gait step detection still treats a foot below half this height above the floor as on the ground.")]
     public float minLiftHeight = 0.05f;
 
     [Header("Foot Position")]
